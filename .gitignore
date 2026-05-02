@@ -1,0 +1,33 @@
+# Environment
+.env
+
+# Database
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Exports
+exports/
+
+# Logs
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

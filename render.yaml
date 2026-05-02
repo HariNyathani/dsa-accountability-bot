@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: dsa-accountability-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: BOT_OWNER_ID
+        sync: false
+      - key: ADMIN_CHANNEL_ID
+        sync: false
+      - key: GMAIL_ADDRESS
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: db/dsa_bot.db
