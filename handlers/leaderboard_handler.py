@@ -46,9 +46,9 @@ async def build_leaderboard(sort_by: str = "streak") -> discord.Embed:
         color=0xF1C40F,
     )
 
-    # Build ranking text
+    # Build ranking text (top 10 to stay within Discord's 1024-char field limit)
     lines = []
-    for i, entry in enumerate(data[:15]):  # top 15
+    for i, entry in enumerate(data[:10]):
         medal = MEDALS[i] if i < 3 else f"`{i+1}.`"
         username = entry.get("discord_username") or f"User {entry['user_id']}"
 
@@ -60,9 +60,9 @@ async def build_leaderboard(sort_by: str = "streak") -> discord.Embed:
         line = (
             f"{medal} **{username}**\n"
             f"  {streak_emoji} Streak: **{entry['current_streak']}** "
-            f"| 🏆 Best: **{entry['longest_streak']}** "
-            f"| 📈 **{entry['consistency']}%** "
-            f"| 💬 {entry['total_messages']} posts"
+            f"| Best: **{entry['longest_streak']}** "
+            f"| Consistency: **{entry['consistency']}%** "
+            f"| Posts: **{entry['total_messages']}**"
         )
         lines.append(line)
 
