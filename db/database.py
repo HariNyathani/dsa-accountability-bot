@@ -71,6 +71,7 @@ async def init_db():
                 channel_id    INTEGER NOT NULL,
                 message_content TEXT,
                 topics        TEXT,
+                parsed_fields TEXT,
                 posted_at     TEXT NOT NULL,
                 log_date      TEXT NOT NULL,
                 message_type  TEXT DEFAULT 'progress',
@@ -158,6 +159,18 @@ async def _migrate(conn: aiosqlite.Connection):
     except Exception as e:
         logger.debug(f"Migration column check: {e}")
 
+    # Add parsed_fields to progress_logs if missing
+    try:
+        cursor = await conn.execute("PRAGMA table_info(progress_logs)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        if "parsed_fields" not in columns:
+            await conn.execute(
+                "ALTER TABLE progress_logs ADD COLUMN parsed_fields TEXT"
+            )
+        await conn.commit()
+    except Exception as e:
+        logger.debug(f"Migration progress_logs parsed_fields check: {e}")
+
     # Migrate daily_status columns from old naming convention
     try:
         cursor = await conn.execute("PRAGMA table_info(daily_status)")
@@ -189,6 +202,48 @@ async def _migrate(conn: aiosqlite.Connection):
             logger.info("Migrated daily_status columns to new naming.")
     except Exception as e:
         logger.debug(f"daily_status migration: {e}")
+
+    # Synchronize orphaned user_ids: create users table entries for any user_ids
+    # found in activity tables (streaks, progress_logs, daily_status) that don't
+    # have a corresponding users row. This fixes data consistency issues from
+    # schema migrations or direct DB manipulation.
+    try:
+        orphan_query = """
+            SELECT DISTINCT src.user_id
+            FROM (
+                SELECT user_id FROM streaks
+                UNION
+                SELECT DISTINCT user_id FROM progress_logs
+                UNION
+                SELECT DISTINCT user_id FROM daily_status
+            ) src
+            LEFT JOIN users u ON src.user_id = u.user_id
+            WHERE u.user_id IS NULL
+        """
+        cursor = await conn.execute(orphan_query)
+        orphaned = [row[0] for row in await cursor.fetchall()]
+        if orphaned:
+            logger.info(f"Found {len(orphaned)} orphaned user_id(s) in activity tables — syncing to users table.")
+            for uid in orphaned:
+                await conn.execute(
+                    """
+                    INSERT OR IGNORE INTO users (user_id, discord_username, timezone, is_active)
+                    VALUES (?, '', 'Asia/Kolkata', 1)
+                    """,
+                    (uid,),
+                )
+                await conn.execute(
+                    "INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)",
+                    (uid,),
+                )
+                await conn.execute(
+                    "INSERT OR IGNORE INTO streaks (user_id, current_streak, longest_streak, last_post_date) VALUES (?, 0, 0, NULL)",
+                    (uid,),
+                )
+                logger.info(f"  Synced orphaned user_id={uid} into users table.")
+            await conn.commit()
+    except Exception as e:
+        logger.warning(f"Orphaned user sync migration: {e}")
 
 
 # ── User helpers ─────────────────────────────────────────────────────────────
@@ -270,7 +325,7 @@ async def is_registered(user_id: int) -> bool:
 
 
 async def ensure_user(user_id: int, discord_username: str = "", email: str = ""):
-    """Insert user row if it doesn't exist. Legacy compat wrapper."""
+    """Insert user row if it doesn't exist. Also updates empty discord_username."""
     conn = await get_connection()
     try:
         await conn.execute(
@@ -280,6 +335,15 @@ async def ensure_user(user_id: int, discord_username: str = "", email: str = "")
             """,
             (user_id, discord_username, email),
         )
+        # Update username if it was previously empty (e.g. auto-healed users)
+        if discord_username:
+            await conn.execute(
+                """
+                UPDATE users SET discord_username = ?
+                WHERE user_id = ? AND (discord_username IS NULL OR discord_username = '')
+                """,
+                (discord_username, user_id),
+            )
         await conn.execute(
             "INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)",
             (user_id,),
@@ -303,14 +367,55 @@ async def update_user_email(user_id: int, email: str):
 
 
 async def get_user(user_id: int) -> Optional[dict]:
-    """Get a single user record."""
+    """Get a single user record. Auto-heals by creating the entry if activity data exists."""
     conn = await get_connection()
     try:
         cursor = await conn.execute(
             "SELECT * FROM users WHERE user_id = ?", (user_id,)
         )
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if row:
+            return dict(row)
+
+        # Auto-heal: check if this user_id has activity data in other tables
+        # but is missing from the users table (data consistency issue)
+        activity_check = await conn.execute(
+            """
+            SELECT 1 FROM streaks WHERE user_id = ?
+            UNION
+            SELECT 1 FROM progress_logs WHERE user_id = ?
+            UNION
+            SELECT 1 FROM daily_status WHERE user_id = ?
+            LIMIT 1
+            """,
+            (user_id, user_id, user_id),
+        )
+        has_activity = await activity_check.fetchone()
+        if has_activity:
+            logger.info(
+                f"Auto-healing: user_id={user_id} has activity data but no users row — creating entry."
+            )
+            await conn.execute(
+                """
+                INSERT OR IGNORE INTO users (user_id, discord_username, timezone, is_active)
+                VALUES (?, '', 'Asia/Kolkata', 1)
+                """,
+                (user_id,),
+            )
+            await conn.execute(
+                "INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)",
+                (user_id,),
+            )
+            await conn.commit()
+
+            # Re-fetch the newly created user
+            cursor = await conn.execute(
+                "SELECT * FROM users WHERE user_id = ?", (user_id,)
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+        return None
     finally:
         await conn.close()
 
@@ -445,6 +550,7 @@ async def save_progress_log(
     posted_at: str,
     log_date: str,
     message_type: str = "progress",
+    parsed_fields: str = None,
 ):
     """Insert a progress log entry."""
     conn = await get_connection()
@@ -452,10 +558,10 @@ async def save_progress_log(
         await conn.execute(
             """
             INSERT INTO progress_logs
-                (user_id, channel_id, message_content, topics, posted_at, log_date, message_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, channel_id, message_content, topics, posted_at, log_date, message_type),
+            (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type),
         )
         await conn.commit()
     finally:

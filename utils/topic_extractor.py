@@ -9,7 +9,8 @@ from typing import Dict, List
 
 # Canonical topics and their aliases / patterns
 TOPIC_PATTERNS: Dict[str, List[str]] = {
-    "arrays": ["array", "arrays", "subarray", "two pointer", "sliding window", "kadane"],
+    "arrays": ["array", "arrays", "subarray", "two pointer", "kadane"],
+    "sliding window": ["slidingwindow", "sliding-window", "sliding window"],
     "strings": ["string", "strings", "substring", "anagram", "palindrome"],
     "linked lists": ["linked list", "linked lists", "singly linked", "doubly linked", "linkedlist"],
     "stacks": ["stack", "stacks", "monotonic stack"],

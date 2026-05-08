@@ -37,3 +37,24 @@ GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
 # ── Database ─────────────────────────────────────────────────────────────────
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "db/dsa_bot.db")
+
+# ── API Server ───────────────────────────────────────────────────────────────
+API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+API_PORT: int = _safe_int("API_PORT", "8000")
+
+# ── Discord OAuth2 ───────────────────────────────────────────────────────
+DISCORD_CLIENT_ID: str = os.getenv("DISCORD_CLIENT_ID", "")
+DISCORD_CLIENT_SECRET: str = os.getenv("DISCORD_CLIENT_SECRET", "")
+DISCORD_OAUTH_REDIRECT_URI: str = os.getenv(
+    "DISCORD_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/callback"
+)
+
+# ── Session / JWT ────────────────────────────────────────────────────────
+SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-to-a-random-secret-key")
+COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
+# ── Frontend ─────────────────────────────────────────────────────────────
+FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# ── Legacy / compat ──────────────────────────────────────────────────────
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

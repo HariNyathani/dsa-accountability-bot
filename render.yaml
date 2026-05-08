@@ -1,9 +1,10 @@
 services:
+  # Discord bot + API running together
   - type: worker
     name: dsa-accountability-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: python main.py
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
@@ -21,3 +22,7 @@ services:
         sync: false
       - key: DATABASE_PATH
         value: db/dsa_bot.db
+      - key: API_PORT
+        value: "8000"
+      - key: API_HOST
+        value: 0.0.0.0

@@ -12,6 +12,8 @@ from db import database
 from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics, topics_to_str
 from utils.streak_utils import on_post
+from utils.command_parser import parse_qdone, parse_plan_tomorrow
+import json
 
 logger = logging.getLogger("dsa_bot.message_handler")
 
@@ -51,9 +53,54 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     # Determine message type
     msg_type = _classify_message(content)
 
-    # Extract topics
-    topics = extract_topics(content)
-    topics_str = topics_to_str(topics)
+    # Parsing logic
+    parsed_fields_dict = {
+        "intent_type": msg_type,
+        "target_date": today,
+        "log": []
+    }
+    
+    topics = []
+    
+    if content.lower().startswith("!qdone"):
+        qdone_results = parse_qdone(content)
+        for canonical, count, raw in qdone_results:
+            parsed_fields_dict["log"].append({
+                "canonical_topic": canonical,
+                "normalized_topic": canonical,
+                "question_count": count
+            })
+            # To support legacy analytics without schema rewrite, repeat topic count times
+            topics.extend([canonical] * count)
+        msg_type = "done"
+        parsed_fields_dict["intent_type"] = "done"
+    else:
+        # Standard extraction
+        extracted = extract_topics(content)
+        topics.extend(extracted)
+        
+        is_plan_tomorrow = parse_plan_tomorrow(content)
+        if is_plan_tomorrow:
+            # target date is tomorrow
+            from utils.time_utils import parse_date
+            from datetime import timedelta
+            tomorrow_date = (parse_date(today) + timedelta(days=1)).strftime("%Y-%m-%d")
+            parsed_fields_dict["target_date"] = tomorrow_date
+            parsed_fields_dict["intent_type"] = "plan"
+            msg_type = "plan"
+            
+        for t in extracted:
+            parsed_fields_dict["log"].append({
+                "canonical_topic": t,
+                "normalized_topic": t,
+                "question_count": 1
+            })
+
+    topics_str = ", ".join(topics)
+    parsed_fields_json = json.dumps(parsed_fields_dict)
+
+    # Ensure user has a consistent users table entry (safety net)
+    await database.ensure_user(message.author.id, str(message.author))
 
     # Save progress log
     await database.save_progress_log(
@@ -64,6 +111,7 @@ async def handle_message(message: discord.Message, bot: discord.Client):
         posted_at=now,
         log_date=today,
         message_type=msg_type,
+        parsed_fields=parsed_fields_json,
     )
 
     # Mark today as posted
@@ -73,15 +121,69 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     streak = await on_post(message.author.id, today)
 
     # React to confirm tracking
+    feedback_msg = None
     try:
-        if msg_type == "plan":
+        if content.lower().startswith("!qdone"):
+            await message.add_reaction("✅")
+            
+            # Rich feedback response
+            if parsed_fields_dict["log"]:
+                lines = []
+                # Fetch total counts for these topics from DB to show rich stats
+                user_logs = await database.get_progress_logs(message.author.id)
+                topic_totals = {}
+                for log in user_logs:
+                    if log.get("topics"):
+                        for t in log["topics"].split(", "):
+                            t = t.strip()
+                            if t:
+                                topic_totals[t] = topic_totals.get(t, 0) + 1
+                                
+                for item in parsed_fields_dict["log"]:
+                    t = item["canonical_topic"]
+                    c = item["question_count"]
+                    total = topic_totals.get(t, 0) + c
+                    lines.append(f"✅ Logged {c} {t.title()} questions.\n📊 {t.title()} Total: {total}")
+                
+                feedback_msg = "\n\n".join(lines)
+            else:
+                feedback_msg = "⚠️ Couldn't parse topics and counts. Use format: `!qdone arrays 5 recursion 2`"
+        elif msg_type == "plan":
             await message.add_reaction("📋")
         elif msg_type == "done":
             await message.add_reaction("✅")
+            
+            # Check for early completion of tomorrow's plan
+            # Look at yesterday's logs to see if they planned this for today (which was "tomorrow" then)
+            # Actually, "planned recursion for tomorrow but completes it today" -> planned it TODAY for tomorrow, but completed it TODAY.
+            # So look at today's logs for a "plan_tomorrow" containing this topic.
+            today_logs = await database.get_progress_logs(message.author.id, today, today)
+            completed_early = []
+            for t in topics:
+                for log in today_logs:
+                    if log.get("parsed_fields"):
+                        try:
+                            pf = json.loads(log["parsed_fields"])
+                            if pf.get("target_date") != today and pf.get("intent_type") == "plan":
+                                # planned for future
+                                for item in pf.get("log", []):
+                                    if item.get("canonical_topic") == t:
+                                        completed_early.append(t)
+                        except:
+                            pass
+            if completed_early:
+                unique_early = list(set(completed_early))
+                feedback_msg = f"Nice, you completed tomorrow's planned task early: {', '.join(unique_early)}!"
         else:
             await message.add_reaction("🔥")
     except discord.HTTPException:
         pass
+
+    if feedback_msg:
+        try:
+            await message.reply(feedback_msg)
+        except:
+            pass
 
     logger.info(
         f"Progress logged: user={message.author.id}, type={msg_type}, "
