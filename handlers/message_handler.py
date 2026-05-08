@@ -142,7 +142,7 @@ async def handle_message(message: discord.Message, bot: discord.Client):
                 for item in parsed_fields_dict["log"]:
                     t = item["canonical_topic"]
                     c = item["question_count"]
-                    total = topic_totals.get(t, 0) + c
+                    total = topic_totals.get(t, 0)
                     lines.append(f"✅ Logged {c} {t.title()} questions.\n📊 {t.title()} Total: {total}")
                 
                 feedback_msg = "\n\n".join(lines)
