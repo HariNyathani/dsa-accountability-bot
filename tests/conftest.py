@@ -14,13 +14,14 @@ from httpx import ASGITransport, AsyncClient
 
 @pytest_asyncio.fixture
 async def app(tmp_path):
-    """Create a fresh FastAPI app with a temporary file DB."""
-    db_path = str(tmp_path / "test.db")
-    os.environ["DATABASE_PATH"] = db_path
+    """Create a fresh FastAPI app for testing."""
+    # Ensure a test DB URL is provided or fallback to a default local test DB
+    test_db = os.getenv("TEST_DATABASE_URL", "postgresql://localhost/dsa_test")
+    os.environ["DATABASE_URL"] = test_db
 
-    # Patch the DB_PATH in the database module BEFORE init
+    # Patch the DSN in the database manager BEFORE init
     from db import database
-    database.DB_PATH = db_path
+    database.db_manager.dsn = test_db
     await database.init_db()
 
     from api.app import create_app

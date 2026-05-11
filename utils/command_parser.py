@@ -16,73 +16,60 @@ DIFFICULTIES = {"easy", "medium", "hard"}
 
 def parse_qdone(content: str) -> List[Tuple[str, int, Optional[str], str]]:
     """
-    Parses `!qdone arrays 5 recursion 2` or `!qdone 2 sum 1` or `!qdone arrays 2 hard`.
+    Parses `!qdone 5 arrays` or `!qdone arrays 2 hard`.
     Returns a list of tuples: (canonical_topic, count, difficulty, original_text_matched)
     """
     if content.lower().startswith("!qdone"):
         content = content[len("!qdone"):].strip()
-    elif content.lower().startswith("!qn"):
-        content = content[len("!qn"):].strip()
     if not content:
         return []
 
     results = []
-
-    if ',' in content:
-        chunks = [c.strip().split() for c in content.split(',')]
-    else:
-        # No commas: heuristic space-separated parsing
-        tokens = content.split()
-        chunks = []
-        current_chunk = []
-        
-        for token in tokens:
-            token_lower = token.lower()
-            is_num = token.isdigit()
-            is_diff = token_lower in DIFFICULTIES
-            
-            terminal_found = False
-            normal_seen = False
-            for t in current_chunk:
-                if not t.isdigit() and t.lower() not in DIFFICULTIES:
-                    normal_seen = True
-                elif normal_seen and (t.isdigit() or t.lower() in DIFFICULTIES):
-                    terminal_found = True
-                    
-            if not is_num and not is_diff and terminal_found:
-                chunks.append(current_chunk)
-                current_chunk = [token]
-            else:
-                current_chunk.append(token)
-                
-        if current_chunk:
-            chunks.append(current_chunk)
-            
+    chunks = [c.strip() for c in content.split(',')]
+    
     for chunk in chunks:
         if not chunk: continue
         
         diff = None
-        cleaned = []
-        for t in chunk:
-            if t.lower() in DIFFICULTIES:
-                diff = t.title()
+        words = chunk.split()
+        cleaned_words = []
+        for w in words:
+            if w.lower() in DIFFICULTIES:
+                diff = w.title()
             else:
-                cleaned.append(t)
+                cleaned_words.append(w)
                 
-        # If all cleaned tokens are digits (or empty), the difficulty word was actually the topic
-        if all(t.isdigit() for t in cleaned):
-            cleaned = chunk
-            diff = None
+        qty = None
+        topic_words = []
+        for w in cleaned_words:
+            if w.isdigit():
+                val = int(w)
+                if val <= 0:
+                    raise ValueError(f"Quantity must be a positive integer, got '{w}'")
+                if qty is None:
+                    qty = val
+                else:
+                    topic_words.append(w)
+            else:
+                # Check for float/decimal
+                if '.' in w:
+                    try:
+                        float(w)
+                        raise ValueError(f"Quantity must be a positive integer, got '{w}'")
+                    except ValueError as e:
+                        if "Quantity must be a positive integer" in str(e):
+                            raise e
+                topic_words.append(w)
+                
+        if qty is None:
+            qty = 1
             
-        count = 1
-        if len(cleaned) > 1 and cleaned[-1].isdigit():
-            count = int(cleaned[-1])
-            cleaned.pop()
+        topic_str = " ".join(topic_words).strip()
+        canonical = get_canonical_topic(topic_str)
+        if not canonical:
+            raise ValueError(f"Topic '{topic_str}' does not match any canonical topic. Use a valid topic like 'Arrays', 'Trees', etc.")
             
-        topic_str = " ".join(cleaned)
-        canonical = get_canonical_topic(topic_str) or topic_str
-        raw_str = " ".join(chunk)
-        results.append((canonical, count, diff, raw_str))
+        results.append((canonical, qty, diff, chunk))
         
     return results
 

@@ -7,37 +7,34 @@ Uses `rapidfuzz` for fast approximate string matching.
 import json
 import logging
 from typing import Optional, Tuple, List
+import asyncio
 
-import aiosqlite
+import psycopg2
+import psycopg2.extras
 from rapidfuzz import process, fuzz
 
 import config
+from db.database import db_manager
 from utils.topic_extractor import TOPIC_PATTERNS
 
 logger = logging.getLogger("dsa_bot.matcher")
 
+from utils.topic_extractor import normalize_topic
+
 def _map_and_dedup(tags_list: List[str]) -> List[str]:
     """Maps raw tags to canonical aliases and deduplicates them."""
-    alias_map = {}
-    for canonical, aliases in TOPIC_PATTERNS.items():
-        for alias in aliases:
-            alias_map[alias.lower()] = canonical
-
     seen = set()
     normalized = []
-    for t in tags_list:
-        t_lower = t.strip().lower()
-        if not t_lower:
+    
+    for item in tags_list:
+        if not item:
             continue
-        
-        if t_lower in alias_map:
-            mapped = alias_map[t_lower].title()
-        else:
-            mapped = t.strip().title()
-            
-        if mapped not in seen:
-            seen.add(mapped)
-            normalized.append(mapped)
+        # Split by comma in case a single string contains multiple tags
+        for t in item.split(','):
+            mapped = normalize_topic(t)
+            if mapped not in seen:
+                seen.add(mapped)
+                normalized.append(mapped)
     return normalized
 
 
@@ -51,20 +48,30 @@ async def _load_problems() -> List[dict]:
     if _problem_cache is not None:
         return _problem_cache
 
-    db_path = config.DATABASE_PATH
-    try:
-        async with aiosqlite.connect(db_path) as conn:
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute(
-                "SELECT question_id, title, title_slug, difficulty, topics FROM leetcode_problems"
-            )
-            rows = await cursor.fetchall()
-            _problem_cache = [dict(r) for r in rows]
-            logger.info(f"Loaded {len(_problem_cache)} LeetCode problems into matcher cache.")
-            return _problem_cache
-    except Exception as e:
-        logger.warning(f"Could not load LeetCode problems for matching: {e}")
-        return []
+    def _sync():
+        try:
+            with db_manager.get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                    cur.execute(
+                        "SELECT question_id, title, title_slug, difficulty, topics FROM leetcode_problems"
+                    )
+                    rows = cur.fetchall()
+                    # Convert dict elements, handle JSONB topics if returned as dict/list natively
+                    parsed_rows = []
+                    for r in rows:
+                        d = dict(r)
+                        if isinstance(d.get("topics"), list) or isinstance(d.get("topics"), dict):
+                            d["topics"] = json.dumps(d["topics"])
+                        parsed_rows.append(d)
+                    return parsed_rows
+        except Exception as e:
+            logger.warning(f"Could not load LeetCode problems for matching: {e}")
+            return []
+
+    _problem_cache = await asyncio.to_thread(_sync)
+    if _problem_cache:
+        logger.info(f"Loaded {len(_problem_cache)} LeetCode problems into matcher cache.")
+    return _problem_cache
 
 
 def invalidate_cache():
@@ -105,7 +112,36 @@ async def fuzzy_match_problem(raw_input: str, threshold: int = 70) -> Optional[d
 
     # Clean input: strip common prefixes users might type
     cleaned = raw_input.strip()
-    # Remove "leetcode" prefix if present
+    
+    import re
+    # 1. Check if the raw input contains a LeetCode URL
+    slug_match = re.search(r'leetcode\.com/problems/([^/>\s]+)', cleaned)
+    target_slug = slug_match.group(1) if slug_match else None
+    
+    # 2. Or maybe the user just passed the exact slug
+    if not target_slug and not " " in cleaned:
+        target_slug = cleaned.lower()
+        
+    if target_slug:
+        for p in problems:
+            if p.get("title_slug") == target_slug:
+                try:
+                    topic_list = json.loads(p.get("topics") or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    topic_list = []
+                topic_list = _map_and_dedup(topic_list)
+                return {
+                    "question_id": p["question_id"],
+                    "title": p["title"],
+                    "difficulty": p.get("difficulty", ""),
+                    "topics": topic_list,
+                    "topics_str": ", ".join(topic_list),
+                    "score": 100.0,
+                }
+        if slug_match:
+            return None # If it was a strict URL but not found, fail immediately
+
+    # Remove "leetcode" prefix if present for fuzzy matching
     for prefix in ("leetcode", "lc", "lc-", "lc "):
         if cleaned.lower().startswith(prefix):
             cleaned = cleaned[len(prefix):].strip(" -#.")

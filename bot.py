@@ -443,12 +443,12 @@ async def cmd_settimezone(ctx: commands.Context, tz: str = ""):
     except pytz.UnknownTimeZoneError:
         await ctx.send(f"❌ Unknown timezone `{tz}`.\nExamples: `Asia/Kolkata`, `US/Eastern`, `Europe/London`")
         return
-    conn = await database.get_connection()
-    try:
-        await conn.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (tz, ctx.author.id))
-        await conn.commit()
-    finally:
-        await conn.close()
+    import asyncio
+    def _update():
+        with database.db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (tz, ctx.author.id))
+    await asyncio.to_thread(_update)
     await ctx.send(f"✅ Timezone set to `{tz}`")
 
 

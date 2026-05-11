@@ -55,9 +55,15 @@ async def _get_user_or_404(user_id: str) -> dict:
     return user
 
 
-def _verify_user_access(user_id: str, current_user):
+def _require_auth(current_user):
+    """Any logged-in user may proceed."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _verify_owner(user_id: str, current_user):
+    """Only the profile owner may proceed."""
+    _require_auth(current_user)
     c_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
     if str(c_id) != str(user_id):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -115,24 +121,29 @@ async def list_users(
     description="Returns full user profile including bot settings.",
 )
 async def get_user(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     user = await _get_user_or_404(user_id)
     uid_int = int(user_id)
-    settings_row = await database.get_user_settings(uid_int)
+
+    # Only expose settings to the owner
+    c_id = str(current_user.id if hasattr(current_user, "id") else current_user.get("id", ""))
+    is_owner = (c_id == str(user_id))
 
     settings = None
-    if settings_row:
-        settings = UserSettings(**{
-            k: settings_row[k]
-            for k in UserSettings.model_fields
-            if k in settings_row
-        })
+    if is_owner:
+        settings_row = await database.get_user_settings(uid_int)
+        if settings_row:
+            settings = UserSettings(**{
+                k: settings_row[k]
+                for k in UserSettings.model_fields
+                if k in settings_row
+            })
 
     return APIResponse(
         data=UserDetail(
             user_id=str(user["user_id"]),
             discord_username=user.get("discord_username"),
-            email=user.get("email"),
+            email=user.get("email") if is_owner else None,  # hide email for non-owners
             timezone=user.get("timezone", "Asia/Kolkata"),
             is_active=bool(user.get("is_active", 1)),
             created_at=user.get("created_at"),
@@ -150,7 +161,7 @@ async def get_user(user_id: str, current_user = Depends(get_current_user)):
     description="Update the email address for reminders.",
 )
 async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _verify_owner(user_id, current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     await database.update_user_email(uid_int, payload.email)
@@ -164,15 +175,15 @@ async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, cur
     description="Update the timezone for the user.",
 )
 async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateRequest, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _verify_owner(user_id, current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
-    conn = await database.get_connection()
-    try:
-        await conn.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (payload.timezone, uid_int))
-        await conn.commit()
-    finally:
-        await conn.close()
+    import asyncio
+    def _update():
+        with database.db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (payload.timezone, uid_int))
+    await asyncio.to_thread(_update)
     return await get_user(user_id)
 
 
@@ -185,7 +196,7 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
     description="Returns topics, difficulty, and stats in a single pass to optimize database load.",
 )
 async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
 
@@ -194,34 +205,24 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
     all_topics = []
     diff_counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Unknown": 0}
     
+    from utils.topic_extractor import normalize_topic, STRICT_CANONICAL_TOPICS
+
     def _map_only(tags_list):
-        normalized = []
-        for t in tags_list:
-            t_lower = t.strip().lower()
-            if not t_lower: continue
-            if t_lower in GLOBAL_ALIAS_MAP:
-                normalized.append(GLOBAL_ALIAS_MAP[t_lower].title())
-            else:
-                normalized.append(t.strip().title())
-        return normalized
+        return [normalize_topic(t) for t in tags_list if t.strip()]
 
     def _normalize_and_dedup(tags_list):
         seen = set()
         normalized = []
         for t in tags_list:
-            t_lower = t.strip().lower()
-            if not t_lower: continue
-            if t_lower in GLOBAL_ALIAS_MAP:
-                mapped = GLOBAL_ALIAS_MAP[t_lower].title()
-            else:
-                mapped = t.strip().title()
+            if not t.strip(): continue
+            mapped = normalize_topic(t)
             if mapped not in seen:
                 seen.add(mapped)
                 normalized.append(mapped)
         return normalized
 
     for log in logs:
-        if log.get("message_type") == "plan":
+        if log.get("message_type") in ("plan", "rest"):
             continue
             
         topics_added = False
@@ -262,12 +263,14 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
                 diff_counts["Unknown"] += len(raw_topics)
 
     # Compile topics
-    topic_counts = Counter(all_topics)
+    canonical_set = set(STRICT_CANONICAL_TOPICS)
+    filtered_topics = [t for t in all_topics if t in canonical_set]
+    topic_counts = Counter(filtered_topics)
     freq = [TopicFrequency(topic=t, count=c) for t, c in topic_counts.most_common()]
     
     user_topics = UserTopics(
         user_id=user_id,
-        total_mentions=len(all_topics),
+        total_mentions=len(filtered_topics),
         unique_topics=len(topic_counts),
         frequency=freq,
     )
@@ -313,7 +316,7 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
     description="Returns aggregate statistics: messages, consistency, streak, today's status.",
 )
 async def get_user_stats(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
 
@@ -345,7 +348,7 @@ async def get_user_stats(user_id: str, current_user = Depends(get_current_user))
     description="Returns current and longest streak information.",
 )
 async def get_user_streak(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     streak = await database.get_streak(uid_int)
@@ -369,7 +372,7 @@ async def get_user_streak(user_id: str, current_user = Depends(get_current_user)
     description="Returns DSA topic frequency analysis for the user's progress logs.",
 )
 async def get_user_topics(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
 
@@ -398,7 +401,7 @@ async def get_user_topics(user_id: str, current_user = Depends(get_current_user)
     description="Returns the user's latest progress logs for a timeline feed.",
 )
 async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50), current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
 
@@ -430,7 +433,7 @@ async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50), c
     description="Returns daily question counts for the past year.",
 )
 async def get_user_heatmap_route(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     data = await database.get_user_heatmap(uid_int)
@@ -453,7 +456,7 @@ async def get_user_heatmap_route(user_id: str, current_user = Depends(get_curren
     description="Returns aggregate counts of easy, medium, hard problems.",
 )
 async def get_user_difficulty(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _require_auth(current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     from handlers.summary_handler import get_difficulty_summary
@@ -478,7 +481,7 @@ async def get_user_difficulty(user_id: str, current_user = Depends(get_current_u
     description="Returns a CSV file containing all progress logs for the user.",
 )
 async def export_user_data(user_id: str, current_user = Depends(get_current_user)):
-    _verify_user_access(user_id, current_user)
+    _verify_owner(user_id, current_user)
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     

@@ -75,6 +75,15 @@ async def handle_message(message: discord.Message, bot: discord.Client):
 
     if result.get("status") == "skipped":
         return
+        
+    if result.get("status") == "error":
+        feedback = result.get("feedback_message")
+        if feedback:
+            try:
+                await message.reply(feedback, delete_after=300)  # 5 min — user needs to read the error
+            except discord.HTTPException:
+                pass
+        return
 
     msg_type = result["msg_type"]
     topics = result["topics"]
@@ -89,7 +98,9 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     # React to confirm tracking
     feedback_msg = None
     try:
-        if content.lower().startswith("!qdone") or content.lower().startswith("!qn"):
+        import re
+        has_url = bool(re.search(r'leetcode\.com/problems/', content.lower()))
+        if content.lower().startswith("!qdone") or content.lower().startswith("!qn") or content.lower().startswith("!log") or has_url:
             await message.add_reaction("✅")
             
             # Unconditionally use the service's feedback and append running totals
@@ -114,6 +125,10 @@ async def handle_message(message: discord.Message, bot: discord.Client):
                 feedback_msg = "⚠️ Couldn't parse topics and counts. Use format: `!qdone arrays 5 recursion 2`"
         elif msg_type == "plan":
             await message.add_reaction("📋")
+            feedback_msg = "📋 Plan logged for tomorrow."
+        elif msg_type == "rest":
+            await message.add_reaction("🛌")
+            feedback_msg = service_feedback
         elif msg_type == "done":
             await message.add_reaction("✅")
             
@@ -139,16 +154,20 @@ async def handle_message(message: discord.Message, bot: discord.Client):
                 if completed_early:
                     unique_early = list(set(completed_early))
                     feedback_msg = f"Nice, you completed tomorrow's planned task early: {', '.join(unique_early)}!"
+                elif service_feedback and service_feedback != "Progress logged.":
+                    feedback_msg = service_feedback
         else:
-            # Free-text progress — show LeetCode feedback if matched
-            if leetcode_matches and service_feedback:
+            # Free-text progress — reply with confirmation and react with fire
+            if service_feedback and service_feedback != "Progress logged.":
                 feedback_msg = service_feedback
             await message.add_reaction("🔥")
     except discord.HTTPException:
         pass
 
-    if feedback_msg:
-        try:
-            await message.reply(feedback_msg)
-        except:
-            pass
+    if not feedback_msg:
+        feedback_msg = "✅ Progress successfully logged."
+
+    try:
+        await message.reply(feedback_msg, delete_after=3600)  # 1 hour — keeps channel clean
+    except:
+        pass

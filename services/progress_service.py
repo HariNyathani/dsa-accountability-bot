@@ -47,17 +47,103 @@ async def process_progress_submission(
     topics = []
     leetcode_matches = []  # Track successful fuzzy matches for feedback
     
-    if web_topics is not None or content.lower().startswith("!qdone") or content.lower().startswith("!qn"):
+    content_lower = content.lower()
+    
+    if msg_type == "rest":
+        if await database.has_rest_today(user_id, today):
+            return {
+                "status": "error",
+                "feedback_message": "❌ You've already used a Rest Day for today! One is enough—go relax or solve a quick problem. 🛌"
+            }
+            
+        current_month = today[:7]
+        rest_count = await database.get_monthly_rest_count(user_id, current_month)
+        if rest_count >= 4:
+            return {
+                "status": "error",
+                "feedback_message": "❌ You've used all 4 Rest Days for this month. Even a 5-minute Arrays session counts! Push through. ⚔️"
+            }
+        parsed_fields_dict["log"].append({
+            "canonical_topic": "Rest",
+            "normalized_topic": "Rest",
+            "question_count": 0,
+            "leetcode_difficulty": "None"
+        })
+        topics.append("Rest")
+
+    import re
+    url_match = re.search(r'leetcode\.com/problems/([^/>\s]+)', content_lower)
+    is_log_command = content_lower.startswith("!log ")
+    
+    if msg_type != "rest" and (is_log_command or url_match):
+        if url_match:
+            target = url_match.group(1)
+            original_display = url_match.group(0)
+        else:
+            target = content_lower.replace("!log ", "", 1).strip()
+            original_display = target
+            
+        match = await fuzzy_match_problem(target)
+        if not match:
+            if is_log_command:
+                return {
+                    "status": "error",
+                    "feedback_message": "❌ Invalid LeetCode URL or problem not found."
+                }
+            else:
+                return {
+                    "status": "skipped"
+                }
+            
+        msg_type = "done"
+        parsed_fields_dict["intent_type"] = "done"
+        leetcode_matches.append({
+            "original": original_display,
+            "matched_title": match["title"],
+            "difficulty": match["difficulty"],
+            "official_topics": match["topics_str"],
+            "score": match["score"],
+            "question_count": 1,
+        })
+        parsed_fields_dict["log"].append({
+            "canonical_topic": match["title"],
+            "normalized_topic": match["title"],
+            "question_count": 1,
+            "leetcode_title": match["title"],
+            "leetcode_topics": match["topics_str"],
+            "leetcode_difficulty": match["difficulty"],
+        })
+        topics.append(match["title"])
+        
+    elif web_topics is not None or content_lower.startswith("!qdone") or content_lower.startswith("!qn"):
+        is_qn = content_lower.startswith("!qn")
         if web_topics is not None:
             qdone_results = [(t["canonical_topic"], t["question_count"], t.get("difficulty")) for t in web_topics]
+        elif is_qn:
+            target_id = content[4:].strip()
+            qdone_results = [(target_id, 1, None)]
         else:
-            qdone_results = [(canonical, count, diff) for canonical, count, diff, raw in parse_qdone(content)]
+            try:
+                qdone_results = [(canonical, count, diff) for canonical, count, diff, raw in parse_qdone(content)]
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "feedback_message": f"❌ {str(e)}"
+                }
             
         for canonical, count, diff in qdone_results:
-            # Attempt fuzzy match against LeetCode database
-            match = await fuzzy_match_problem(canonical)
+            if is_qn:
+                match = await fuzzy_match_problem(f"#{canonical}")
+            else:
+                match = None
+                
+            if is_qn and not match:
+                return {
+                    "status": "error",
+                    "feedback_message": f"❌ Question ID {canonical} not found in our database. Try logging with the URL instead."
+                }
+                
             if match:
-                # Use matched difficulty over user-provided difficulty if it exists
                 final_diff = match.get("difficulty", diff)
                 leetcode_matches.append({
                     "original": canonical,
@@ -75,11 +161,12 @@ async def process_progress_submission(
                     "leetcode_topics": match["topics_str"],
                     "leetcode_difficulty": final_diff,
                 })
-                # Store the canonical topic name as-is (count times) so that
-                # comma-counting in get_message_count still equals the real
-                # question count, NOT the number of tags.
                 topics.extend([canonical] * count)
             else:
+                from utils.command_parser import get_canonical_topic
+                if not get_canonical_topic(canonical):
+                    canonical = "Uncategorized"
+                
                 log_entry = {
                     "canonical_topic": canonical,
                     "normalized_topic": canonical,
@@ -89,73 +176,24 @@ async def process_progress_submission(
                 if diff:
                     log_entry["leetcode_difficulty"] = diff.title()
                 parsed_fields_dict["log"].append(log_entry)
-                # To support legacy analytics without schema rewrite, repeat topic count times
                 topics.extend([canonical] * count)
         msg_type = "done"
         parsed_fields_dict["intent_type"] = "done"
-    else:
-        # Standard extraction
+    elif msg_type != "rest":
+        # Standard extraction without fuzzy matching
         extracted = extract_topics(content)
         
-        # If standard extraction found nothing, try fuzzy-matching the entire
-        # message against LeetCode titles (user might have typed just a problem name)
-        if not extracted:
-            match = await fuzzy_match_problem(content)
-            if match:
-                leetcode_matches.append({
-                    "original": content,
-                    "matched_title": match["title"],
-                    "difficulty": match["difficulty"],
-                    "official_topics": match["topics_str"],
-                    "score": match["score"],
-                    "question_count": 1,
-                })
-                # Use the problem title as the single topic entry so
-                # comma-counting = 1 question
-                extracted = [match["title"]]
-                parsed_fields_dict["log"].append({
-                    "canonical_topic": match["title"],
-                    "normalized_topic": match["title"],
-                    "question_count": 1,
-                    "leetcode_title": match["title"],
-                    "leetcode_topics": match["topics_str"],
-                    "leetcode_difficulty": match["difficulty"],
-                })
-        
-        if not leetcode_matches:
-            # No fuzzy match happened — try matching each extracted topic individually
-            for t in extracted:
-                match = await fuzzy_match_problem(t)
-                if match:
-                    leetcode_matches.append({
-                        "original": t,
-                        "matched_title": match["title"],
-                        "difficulty": match["difficulty"],
-                        "official_topics": match["topics_str"],
-                        "score": match["score"],
-                        "question_count": 1,
-                    })
-                    parsed_fields_dict["log"].append({
-                        "canonical_topic": t,
-                        "normalized_topic": t,
-                        "question_count": 1,
-                        "leetcode_title": match["title"],
-                        "leetcode_topics": match["topics_str"],
-                        "leetcode_difficulty": match["difficulty"],
-                    })
-                else:
-                    parsed_fields_dict["log"].append({
-                        "canonical_topic": t,
-                        "normalized_topic": t,
-                        "question_count": 1,
-                        "leetcode_topics": t
-                    })
-        
-        topics.extend(extracted)
+        for canon, count in extracted:
+            parsed_fields_dict["log"].append({
+                "canonical_topic": canon,
+                "normalized_topic": canon,
+                "question_count": count,
+                "leetcode_topics": canon
+            })
+            topics.extend([canon] * count)
         
         is_plan_tomorrow = parse_plan_tomorrow(content)
         if is_plan_tomorrow:
-            # target date is tomorrow
             from utils.time_utils import parse_date
             from datetime import timedelta
             try:
@@ -166,8 +204,31 @@ async def process_progress_submission(
             parsed_fields_dict["intent_type"] = "plan"
             msg_type = "plan"
 
+    # Silence the Noise: Abort if nothing was extracted and it's not a plan
+    if msg_type != "plan" and not topics:
+        return {
+            "status": "skipped"
+        }
+
     topics_str = ", ".join(topics)
     parsed_fields_json = json.dumps(parsed_fields_dict)
+
+    # Rate Limits
+    new_quantity = sum(item.get("question_count", 0) for item in parsed_fields_dict.get("log", []))
+    
+    if new_quantity > 10:
+        return {
+            "status": "error",
+            "feedback_message": "❌ Limit exceeded. You can only log up to 10 questions per command to keep data realistic."
+        }
+        
+    if msg_type != "plan" and new_quantity > 0:
+        current_sum = await database.get_daily_question_count(user_id, today)
+        if (current_sum + new_quantity) > 25:
+            return {
+                "status": "error",
+                "feedback_message": "❌ Daily limit reached (25/day). Quality over quantity, legend! See you tomorrow."
+            }
 
     # Save progress log
     await database.save_progress_log(
@@ -197,7 +258,12 @@ async def process_progress_submission(
     )
 
     # Build feedback message
-    feedback_message = _build_feedback(topics, leetcode_matches, msg_type)
+    if msg_type == "rest":
+        current_month = today[:7]
+        rest_count = await database.get_monthly_rest_count(user_id, current_month)
+        feedback_message = f"🛌 **Rest Day Logged.** (Used {rest_count}/4 this month). Your {streak.get('current_streak', 0)} day streak is preserved. Recharging is part of the grind-see you tomorrow! 🌙"
+    else:
+        feedback_message = _build_feedback(topics, leetcode_matches, msg_type)
 
     return {
         "status": "success",
@@ -264,6 +330,8 @@ def _classify_message(content: str) -> str:
     lower = content.lower()
     if lower.startswith("!plan"):
         return "plan"
+    if lower.startswith("!rest") or lower.startswith("!cheatday"):
+        return "rest"
     if lower.startswith("!done"):
         return "done"
     # Auto-detect

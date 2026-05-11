@@ -38,17 +38,28 @@ async def _ensure_user(user_id: str) -> dict:
 async def get_summaries(user_id: str):
     await _ensure_user(user_id)
     uid_int = int(user_id)
-    conn = await database.get_connection()
-    try:
-        cursor = await conn.execute(
-            "SELECT week_start, week_end, days_posted, days_missed, "
-            "consistency_percentage, total_messages "
-            "FROM weekly_summaries WHERE user_id = ? ORDER BY week_start DESC",
-            (uid_int,),
-        )
-        rows = await cursor.fetchall()
-    finally:
-        await conn.close()
+    import asyncio
+    import psycopg2.extras
+    def _fetch():
+        with database.db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT week_start, week_end, days_posted, days_missed, "
+                    "consistency_percentage, total_messages "
+                    "FROM weekly_summaries WHERE user_id = %s ORDER BY week_start DESC",
+                    (uid_int,)
+                )
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    if 'week_start' in d and d['week_start']:
+                        d['week_start'] = str(d['week_start'])
+                    if 'week_end' in d and d['week_end']:
+                        d['week_end'] = str(d['week_end'])
+                    rows.append(d)
+                return rows
+                
+    rows = await asyncio.to_thread(_fetch)
 
     summaries = [
         WeeklySummary(

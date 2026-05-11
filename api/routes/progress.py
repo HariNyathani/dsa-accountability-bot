@@ -67,6 +67,9 @@ async def log_progress(
                 )
             )
             
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("feedback_message", "Invalid submission"))
+            
         streak = result.get("streak", {})
         feedback = result.get("feedback_message", "Progress logged successfully")
         
@@ -83,3 +86,39 @@ async def log_progress(
     except Exception as e:
         logger.error(f"Error logging progress from web: {e}")
         raise HTTPException(status_code=500, detail="Failed to log progress")
+
+@router.post(
+    "/rest",
+    response_model=LogProgressResponse,
+    summary="Log a rest day",
+    description="Registers a rest day for the user, subject to monthly and daily limits.",
+)
+async def log_rest_day(user_id: int = Depends(require_auth)):
+    try:
+        result = await process_progress_submission(
+            user_id=user_id,
+            content="!rest",
+            source="web"
+        )
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("feedback_message", "Failed to log rest day"))
+            
+        streak = result.get("streak", {})
+        feedback = result.get("feedback_message", "Rest Day Logged. See you tomorrow, legend!")
+        
+        return LogProgressResponse(
+            success=True,
+            message=feedback,
+            data=LogProgressData(
+                msg_type=result.get("msg_type", "rest"),
+                topics_logged=[],
+                streak_current=streak.get("current_streak", 0),
+                streak_longest=streak.get("longest_streak", 0)
+            )
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging rest day from web: {e}")
+        raise HTTPException(status_code=500, detail="Failed to log rest day")

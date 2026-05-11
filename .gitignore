@@ -36,3 +36,8 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+#scrap
+local.db
+test_rest.py
+sanitize_db.py

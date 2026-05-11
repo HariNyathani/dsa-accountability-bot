@@ -24,7 +24,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.error ?? res.statusText, res.status);
+    throw new ApiError(body.detail ?? body.error ?? res.statusText, res.status);
   }
 
   return res.json();
@@ -104,6 +104,9 @@ export const api = {
   // Progress
   logProgress: (data: { intent_type: string, topics: { canonical_topic: string, question_count: number, difficulty?: string }[], note?: string, target_date?: string }) =>
     request<APIResponse<any>>("/progress", { method: "POST", body: JSON.stringify(data) }),
+
+  logRestDay: () =>
+    request<APIResponse<any>>("/progress/rest", { method: "POST", body: JSON.stringify({}) }),
 
   getExportUrl: (userId: string) => `${BASE}/users/${userId}/export`,
 };

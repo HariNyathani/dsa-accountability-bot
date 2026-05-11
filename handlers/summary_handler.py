@@ -189,35 +189,23 @@ def _extract_exposure_topics(log: dict) -> list:
     continue to work.
     """
     topics = []
-            
+    from utils.topic_extractor import normalize_topic, STRICT_CANONICAL_TOPICS
+
     def _map_only(tags_list):
-        normalized = []
-        for t in tags_list:
-            t_lower = t.strip().lower()
-            if not t_lower:
-                continue
-            if t_lower in GLOBAL_ALIAS_MAP:
-                normalized.append(GLOBAL_ALIAS_MAP[t_lower].title())
-            else:
-                normalized.append(t.strip().title())
-        return normalized
+        return [normalize_topic(t) for t in tags_list if t.strip()]
 
     def _normalize_and_dedup(tags_list):
         seen = set()
         normalized = []
         for t in tags_list:
-            t_lower = t.strip().lower()
-            if not t_lower:
+            if not t.strip():
                 continue
-            if t_lower in GLOBAL_ALIAS_MAP:
-                mapped = GLOBAL_ALIAS_MAP[t_lower].title()
-            else:
-                mapped = t.strip().title()
-                
+            mapped = normalize_topic(t)
             if mapped not in seen:
                 seen.add(mapped)
                 normalized.append(mapped)
         return normalized
+
     pf_raw = log.get("parsed_fields")
     if pf_raw:
         try:
@@ -248,12 +236,18 @@ def _extract_exposure_topics(log: dict) -> list:
 
 async def get_topic_summary(user_id: int) -> dict:
     """Get topic frequency summary (exposure-based for charts)."""
+    from utils.topic_extractor import STRICT_CANONICAL_TOPICS
     logs = await database.get_progress_logs(user_id)
+    
+    canonical_set = set(STRICT_CANONICAL_TOPICS)
+    
     all_topics = []
     for log in logs:
-        if log.get("message_type") == "plan":
+        if log.get("message_type") in ("plan", "rest"):
             continue
-        all_topics.extend(_extract_exposure_topics(log))
+        extracted = _extract_exposure_topics(log)
+        filtered = [t for t in extracted if t in canonical_set]
+        all_topics.extend(filtered)
 
     topic_counts = Counter(all_topics)
     return {

@@ -93,7 +93,7 @@ async def global_topics(
     for user in users:
         logs = await database.get_progress_logs(user["user_id"])
         for log in logs:
-            if log.get("message_type") == "plan":
+            if log.get("message_type") in ("plan", "rest"):
                 continue
             all_topics.extend(_extract_exposure_topics(log))
 
@@ -148,6 +148,8 @@ async def activity_trend(
 
         logs = await database.get_progress_logs(user["user_id"], start_date, today)
         for log in logs:
+            if log.get("message_type") in ("plan", "rest"):
+                continue
             d = log["log_date"]
             if d not in day_map:
                 day_map[d] = {"users_posted": 0, "total_messages": 0}

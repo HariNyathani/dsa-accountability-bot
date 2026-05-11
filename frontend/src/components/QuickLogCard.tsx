@@ -40,7 +40,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
       if ((res as any).error) {
         setFeedback({ type: "error", message: (res as any).error });
       } else {
-        const d = res as any; // Cast since the type might not fully cover skipped
+        const d = res as any;
         if (d.msg_type === "skipped") {
             setFeedback({ type: "error", message: "This exact progress was already logged today." });
         } else {
@@ -55,6 +55,25 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
       }
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to log progress" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogRest = async () => {
+    setLoading(true);
+    setFeedback(null);
+    try {
+      const res = await api.logRestDay();
+      if ((res as any).error) {
+        setFeedback({ type: "error", message: (res as any).error });
+      } else {
+        setFeedback({ type: "success", message: "Rest Day Logged. See you tomorrow, legend!" });
+        onLogSuccess();
+        setTimeout(() => setFeedback(null), 4000);
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to log rest day" });
     } finally {
       setLoading(false);
     }
@@ -79,11 +98,11 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
       )}
 
       <form onSubmit={handleSubmit}>
-        <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+        <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
           <button
             type="button"
             style={{
-              flex: 1, padding: "8px", borderRadius: "6px",
+              flex: 1.2, padding: "8px 4px", borderRadius: "6px", fontSize: "0.85rem",
               background: intent === "done" ? "rgba(99, 102, 241, 0.15)" : "transparent",
               color: intent === "done" ? "#818cf8" : "#94A3B8",
               border: `1px solid ${intent === "done" ? "rgba(99, 102, 241, 0.3)" : "rgba(255, 255, 255, 0.1)"}`,
@@ -96,7 +115,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
           <button
             type="button"
             style={{
-              flex: 1, padding: "8px", borderRadius: "6px",
+              flex: 1.2, padding: "8px 4px", borderRadius: "6px", fontSize: "0.85rem",
               background: intent === "plan" ? "rgba(245, 158, 11, 0.15)" : "transparent",
               color: intent === "plan" ? "#fcd34d" : "#94A3B8",
               border: `1px solid ${intent === "plan" ? "rgba(245, 158, 11, 0.3)" : "rgba(255, 255, 255, 0.1)"}`,
@@ -105,6 +124,21 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
             onClick={() => setIntent("plan")}
           >
             📋 Plan Tomorrow
+          </button>
+          <button
+            type="button"
+            style={{
+              flex: 1, padding: "8px 4px", borderRadius: "6px", fontSize: "0.85rem",
+              background: "transparent",
+              color: "#94A3B8",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              cursor: loading ? "not-allowed" : "pointer", transition: "all 0.2s",
+              opacity: loading ? 0.5 : 1
+            }}
+            onClick={handleLogRest}
+            disabled={loading}
+          >
+            🛌 Rest Day
           </button>
         </div>
 

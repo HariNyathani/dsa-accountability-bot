@@ -36,7 +36,7 @@ DEFAULT_TIMEZONE: str = os.getenv("TIMEZONE", "Asia/Kolkata")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
 # ── Database ─────────────────────────────────────────────────────────────────
-DATABASE_PATH: str = os.getenv("DATABASE_PATH", "db/dsa_bot.db")
+DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://localhost/dsa_bot")
 
 # ── API Server ───────────────────────────────────────────────────────────────
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

@@ -63,10 +63,15 @@ async def system_status():
     db_status = "up"
     db_latency = None
     try:
+        import asyncio
         t0 = time.perf_counter()
-        conn = await database.get_connection()
-        await conn.execute("SELECT 1")
-        await conn.close()
+        
+        def _sync_check():
+            with database.db_manager.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    
+        await asyncio.to_thread(_sync_check)
         db_latency = round((time.perf_counter() - t0) * 1000, 2)
     except Exception as e:
         db_status = "down"
