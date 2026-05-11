@@ -6,3 +6,4 @@ from api.schemas.leaderboard import *
 from api.schemas.analytics import *
 from api.schemas.summaries import *
 from api.schemas.reminders import *
+from api.schemas.progress import *

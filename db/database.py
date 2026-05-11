@@ -58,10 +58,10 @@ async def init_db():
                 deadline_minute   INTEGER DEFAULT 0,
                 warn_hour         INTEGER DEFAULT 22,
                 warn_minute       INTEGER DEFAULT 0,
-                final_hour        INTEGER DEFAULT 23,
-                final_minute      INTEGER DEFAULT 0,
+                final_hour        INTEGER DEFAULT 22,
+                final_minute      INTEGER DEFAULT 30,
                 email_hour        INTEGER DEFAULT 23,
-                email_minute      INTEGER DEFAULT 30,
+                email_minute      INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             );
 
@@ -108,6 +108,14 @@ async def init_db():
                 consistency_percentage REAL DEFAULT 0.0,
                 total_messages        INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS leetcode_problems (
+                question_id   INTEGER PRIMARY KEY,
+                title         TEXT,
+                title_slug    TEXT,
+                difficulty    TEXT,
+                topics        TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_progress_logs_user_date
@@ -202,6 +210,17 @@ async def _migrate(conn: aiosqlite.Connection):
             logger.info("Migrated daily_status columns to new naming.")
     except Exception as e:
         logger.debug(f"daily_status migration: {e}")
+
+    # Update default reminder schedule for existing users
+    try:
+        await conn.execute("""
+            UPDATE user_settings 
+            SET final_hour=22, final_minute=30, email_hour=23, email_minute=0 
+            WHERE final_hour=23 AND final_minute=0 AND email_hour=23 AND email_minute=30
+        """)
+        await conn.commit()
+    except Exception as e:
+        logger.debug(f"Migration reminder schedule: {e}")
 
     # Synchronize orphaned user_ids: create users table entries for any user_ids
     # found in activity tables (streaks, progress_logs, daily_status) that don't
@@ -610,6 +629,67 @@ async def get_progress_logs(user_id: int, start_date: str = "", end_date: str = 
         await conn.close()
 
 
+async def get_recent_progress_logs(user_id: int, limit: int = 10) -> List[dict]:
+    """Fetch recent progress logs for a user."""
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT * FROM progress_logs
+            WHERE user_id = ?
+            ORDER BY posted_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def get_user_heatmap(user_id: int) -> dict:
+    """Get heatmap data for the past 365 days."""
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT 
+                log_date,
+                SUM(
+                    CASE 
+                        WHEN parsed_fields IS NOT NULL THEN 
+                            (SELECT SUM(COALESCE(CAST(json_extract(value, '$.question_count') AS INTEGER), 1)) 
+                             FROM json_each(parsed_fields, '$.log'))
+                        WHEN topics IS NOT NULL AND topics != '' THEN 
+                            LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1
+                        ELSE 1 
+                    END
+                ) as daily_questions
+            FROM progress_logs 
+            WHERE user_id = ? AND log_date >= date('now', 'localtime', '-365 days') AND message_type != 'plan'
+            GROUP BY log_date
+            """,
+            (user_id,)
+        )
+        rows = await cursor.fetchall()
+        
+        heatmap_data = {row["log_date"]: row["daily_questions"] for row in rows}
+        
+        # Get streaks using existing logic
+        streak_data = await get_streak(user_id)
+        
+        return {
+            "dates": heatmap_data,
+            "active_days": len(heatmap_data),
+            "current_streak": streak_data.get("current_streak", 0),
+            "max_streak": streak_data.get("longest_streak", 0)
+        }
+    finally:
+        await conn.close()
+
+
+
 async def get_message_count(user_id: int, start_date: str = "", end_date: str = "") -> int:
     """Count total progress messages, optionally within a date range."""
     conn = await get_connection()
@@ -617,20 +697,69 @@ async def get_message_count(user_id: int, start_date: str = "", end_date: str = 
         if start_date and end_date:
             cursor = await conn.execute(
                 """
-                SELECT COUNT(*) as cnt FROM progress_logs
-                WHERE user_id = ? AND log_date BETWEEN ? AND ?
+                SELECT COALESCE(SUM(CASE WHEN topics IS NOT NULL AND topics != '' THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1 ELSE 0 END), 0) as cnt FROM progress_logs
+                WHERE user_id = ? AND log_date BETWEEN ? AND ? AND message_type != 'plan'
                 """,
                 (user_id, start_date, end_date),
             )
         else:
             cursor = await conn.execute(
-                "SELECT COUNT(*) as cnt FROM progress_logs WHERE user_id = ?",
+                "SELECT COALESCE(SUM(CASE WHEN topics IS NOT NULL AND topics != '' THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1 ELSE 0 END), 0) as cnt FROM progress_logs WHERE user_id = ? AND message_type != 'plan'",
                 (user_id,),
             )
         row = await cursor.fetchone()
         return row["cnt"] if row else 0
     finally:
         await conn.close()
+
+
+# ── Admin Suite ──────────────────────────────────────────────────────────────
+
+async def delete_user_progress(user_id: int):
+    """Admin only: Delete all progress logs for a user."""
+    conn = await get_connection()
+    try:
+        await conn.execute("DELETE FROM progress_logs WHERE user_id = ?", (user_id,))
+        await conn.execute("UPDATE streaks SET current_streak = 0, longest_streak = 0, last_post_date = NULL WHERE user_id = ?", (user_id,))
+        await conn.execute("UPDATE daily_status SET posted_flag = 0 WHERE user_id = ?", (user_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+        
+    from utils.streak_utils import recalculate_streak
+    await recalculate_streak(user_id)
+
+async def undo_last_entry(user_id: int) -> bool:
+    """Admin only: Delete the single latest progress log entry for a user."""
+    conn = await get_connection()
+    log_deleted = False
+    try:
+        cursor = await conn.execute(
+            "SELECT id, log_date FROM progress_logs WHERE user_id = ? ORDER BY posted_at DESC LIMIT 1", 
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            log_id = row["id"]
+            log_date = row["log_date"]
+            await conn.execute("DELETE FROM progress_logs WHERE id = ?", (log_id,))
+            
+            # Check if there are other logs on the same date
+            cursor = await conn.execute("SELECT id FROM progress_logs WHERE user_id = ? AND log_date = ? AND message_type != 'plan' LIMIT 1", (user_id, log_date))
+            has_other_logs = await cursor.fetchone()
+            if not has_other_logs:
+                await conn.execute("UPDATE daily_status SET posted_flag = 0 WHERE user_id = ? AND date = ?", (user_id, log_date))
+
+            await conn.commit()
+            log_deleted = True
+    finally:
+        await conn.close()
+        
+    if log_deleted:
+        from utils.streak_utils import recalculate_streak
+        await recalculate_streak(user_id)
+        return True
+    return False
 
 
 # ── Daily status helpers ─────────────────────────────────────────────────────
@@ -796,7 +925,7 @@ async def get_leaderboard_data() -> List[dict]:
                 COALESCE(s.current_streak, 0) as current_streak,
                 COALESCE(s.longest_streak, 0) as longest_streak,
                 COALESCE(s.last_post_date, '') as last_post_date,
-                (SELECT COUNT(*) FROM progress_logs p WHERE p.user_id = u.user_id) as total_messages,
+                (SELECT COALESCE(SUM(CASE WHEN p.topics IS NOT NULL AND p.topics != '' THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1 ELSE 0 END), 0) FROM progress_logs p WHERE p.user_id = u.user_id AND p.message_type != 'plan') as total_messages,
                 (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id AND d.posted_flag = 1) as days_posted,
                 (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id) as total_days
             FROM users u

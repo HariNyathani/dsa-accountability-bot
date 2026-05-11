@@ -64,15 +64,15 @@ async def _check_user_reminders(bot: discord.Client, user: dict):
             await _send_warn_reminder(bot, user_id, today)
 
     # Check final reminder
-    final_h = user.get("final_hour", 23)
-    final_m = user.get("final_minute", 0)
+    final_h = user.get("final_hour", 22)
+    final_m = user.get("final_minute", 30)
     if current_hour == final_h and current_minute == final_m:
         if not await database.was_reminder_sent(user_id, today, "final"):
             await _send_final_reminder(bot, user_id, today)
 
     # Check email escalation
     email_h = user.get("email_hour", 23)
-    email_m = user.get("email_minute", 30)
+    email_m = user.get("email_minute", 0)
     if current_hour == email_h and current_minute == email_m:
         if not await database.was_reminder_sent(user_id, today, "email"):
             await _send_email_escalation(bot, user_id, user, today)

@@ -5,6 +5,7 @@ Multi-user: generates summaries per user. The weekly scheduler iterates
 over all active users.
 """
 
+import json
 import logging
 import discord
 from collections import Counter
@@ -21,8 +22,15 @@ from utils.time_utils import (
 )
 from utils.streak_utils import recalculate_streak
 from services.ai_service import analyse_progress
+from utils.topic_extractor import TOPIC_PATTERNS
 
 logger = logging.getLogger("dsa_bot.summary_handler")
+
+# Build reverse lookup dynamically for alias resolution (built once at startup)
+GLOBAL_ALIAS_MAP = {}
+for canonical, aliases in TOPIC_PATTERNS.items():
+    for alias in aliases:
+        GLOBAL_ALIAS_MAP[alias.lower()] = canonical
 
 
 async def generate_weekly_summary_all(bot: discord.Client, send: bool = True):
@@ -68,13 +76,14 @@ async def generate_weekly_summary(
     total_days = 7
     days_missed = total_days - days_posted
     consistency = (days_posted / total_days) * 100 if total_days > 0 else 0
-    total_messages = len(logs)
+    total_messages = sum(len(log.get("topics", "").split(", ")) if log.get("topics") else 0 for log in logs if log.get("message_type") != "plan")
 
-    # Collect topics
+    # Collect topics (exposure-based: prefer LeetCode tags from parsed_fields)
     all_topics = []
     for log in logs:
-        if log.get("topics"):
-            all_topics.extend(log["topics"].split(", "))
+        if log.get("message_type") == "plan":
+            continue
+        all_topics.extend(_extract_exposure_topics(log))
     topic_counts = Counter(all_topics)
     top_topics = topic_counts.most_common(5)
 
@@ -118,6 +127,24 @@ async def generate_weekly_summary(
     return summary
 
 
+def _calculate_badges(streak: int, total_messages: int) -> list:
+    badges = []
+    # Streak Badges
+    if streak >= 1825: badges.append("💎 Mythic Ascendant (5 Years)")
+    elif streak >= 365: badges.append("🔥 Unstoppable (365 Days)")
+    elif streak >= 100: badges.append("💯 Century Club (100 Days)")
+    elif streak >= 30: badges.append("⚡ On Fire (30 Days)")
+    elif streak >= 10: badges.append("🌱 Warming Up (10 Days)")
+
+    # Volume Badges
+    if total_messages >= 1000: badges.append("🧠 Algorithm Master (1000+ Qs)")
+    elif total_messages >= 500: badges.append("⚔️ Gladiator (500+ Qs)")
+    elif total_messages >= 100: badges.append("🛠️ Builder (100+ Qs)")
+    elif total_messages >= 50: badges.append("🎯 Focused (50+ Qs)")
+    
+    return badges
+
+
 async def get_status_report(user_id: int) -> dict:
     """Build a current-day status report."""
     user = await database.get_user(user_id)
@@ -144,16 +171,89 @@ async def get_status_report(user_id: int) -> dict:
         "total_days_tracked": total_days,
         "days_posted": days_posted,
         "consistency": round(consistency, 1),
+        "badges": _calculate_badges(streak["current_streak"], total_messages),
     }
 
 
+def _extract_exposure_topics(log: dict) -> list:
+    """
+    Extract DSA topic tags from a single progress log for chart/frequency analytics.
+
+    Priority:
+      1. If parsed_fields contains 'log' entries with 'leetcode_topics', unpack
+         those comma-separated official tags (exposure-based counting).
+      2. Otherwise fall back to the legacy 'topics' column.
+
+    This ensures charts show real DSA topics ("Array", "Hash Table") rather than
+    problem titles ("Two Sum"), while legacy logs without LeetCode metadata
+    continue to work.
+    """
+    topics = []
+            
+    def _map_only(tags_list):
+        normalized = []
+        for t in tags_list:
+            t_lower = t.strip().lower()
+            if not t_lower:
+                continue
+            if t_lower in GLOBAL_ALIAS_MAP:
+                normalized.append(GLOBAL_ALIAS_MAP[t_lower].title())
+            else:
+                normalized.append(t.strip().title())
+        return normalized
+
+    def _normalize_and_dedup(tags_list):
+        seen = set()
+        normalized = []
+        for t in tags_list:
+            t_lower = t.strip().lower()
+            if not t_lower:
+                continue
+            if t_lower in GLOBAL_ALIAS_MAP:
+                mapped = GLOBAL_ALIAS_MAP[t_lower].title()
+            else:
+                mapped = t.strip().title()
+                
+            if mapped not in seen:
+                seen.add(mapped)
+                normalized.append(mapped)
+        return normalized
+    pf_raw = log.get("parsed_fields")
+    if pf_raw:
+        try:
+            pf = json.loads(pf_raw) if isinstance(pf_raw, str) else pf_raw
+            log_entries = pf.get("log", [])
+            for entry in log_entries:
+                lc_topics = entry.get("leetcode_topics")
+                if lc_topics:
+                    q_count = entry.get("question_count", 1)
+                    extracted_tags = [t.strip() for t in lc_topics.split(",") if t.strip()]
+                    normalized_tags = _normalize_and_dedup(extracted_tags)
+                    topics.extend(normalized_tags * q_count)
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    # If we extracted LeetCode tags (which now includes manual tags), return directly
+    if topics:
+        return topics
+
+    raw = log.get("topics", "")
+    if raw:
+        # Legacy strings already repeat the canonical topic `count` times
+        raw_topics = [t.strip() for t in raw.split(",") if t.strip()]
+        return _map_only(raw_topics)
+    
+    return []
+
+
 async def get_topic_summary(user_id: int) -> dict:
-    """Get topic frequency summary."""
+    """Get topic frequency summary (exposure-based for charts)."""
     logs = await database.get_progress_logs(user_id)
     all_topics = []
     for log in logs:
-        if log.get("topics"):
-            all_topics.extend(log["topics"].split(", "))
+        if log.get("message_type") == "plan":
+            continue
+        all_topics.extend(_extract_exposure_topics(log))
 
     topic_counts = Counter(all_topics)
     return {
@@ -219,3 +319,39 @@ def _build_summary_embed(summary: dict) -> discord.Embed:
     embed.set_footer(text="DSA Accountability Bot • Stay consistent! 💪")
 
     return embed
+
+
+async def get_difficulty_summary(user_id: int) -> dict:
+    """Get difficulty distribution (Easy, Medium, Hard, Unknown)."""
+    logs = await database.get_progress_logs(user_id)
+    counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Unknown": 0}
+    for log in logs:
+        if log.get("message_type") == "plan":
+            continue
+            
+        pf_raw = log.get("parsed_fields")
+        if pf_raw:
+            try:
+                pf = json.loads(pf_raw) if isinstance(pf_raw, str) else pf_raw
+                log_entries = pf.get("log", [])
+                for entry in log_entries:
+                    q_count = entry.get("question_count", 1)
+                    diff = entry.get("leetcode_difficulty")
+                    if diff:
+                        diff_title = diff.strip().title()
+                        if diff_title in counts:
+                            counts[diff_title] += q_count
+                        else:
+                            counts["Unknown"] += q_count
+                    else:
+                        counts["Unknown"] += q_count
+            except:
+                pass
+        else:
+            # Fallback for old logs
+            topics_raw = log.get("topics", "")
+            if topics_raw:
+                raw_topics = [t.strip() for t in topics_raw.split(",") if t.strip()]
+                counts["Unknown"] += len(raw_topics)
+
+    return counts

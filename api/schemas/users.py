@@ -5,6 +5,12 @@ User-related Pydantic schemas.
 from typing import List, Optional
 from pydantic import BaseModel
 
+class EmailUpdateRequest(BaseModel):
+    email: str
+
+class TimezoneUpdateRequest(BaseModel):
+    timezone: str
+
 
 class UserBase(BaseModel):
     """Core user fields exposed by the API."""
@@ -53,6 +59,7 @@ class UserStats(BaseModel):
     longest_streak: int = 0
     posted_today: bool = False
     today: str = ""
+    badges: List[str] = []
 
 
 class TopicFrequency(BaseModel):
@@ -67,3 +74,41 @@ class UserTopics(BaseModel):
     total_mentions: int = 0
     unique_topics: int = 0
     frequency: List[TopicFrequency] = []
+
+
+class ActivityLog(BaseModel):
+    """A single progress log entry for activity feed."""
+    id: int
+    posted_at: str
+    message_type: str
+    message_content: Optional[str] = None
+    topics: Optional[str] = None
+    parsed_fields: Optional[str] = None
+
+
+class UserActivityResponse(BaseModel):
+    """Recent activity for a user."""
+    user_id: str
+    recent_logs: List[ActivityLog]
+
+class HeatmapResponse(BaseModel):
+    user_id: str
+    dates: dict[str, int]
+    active_days: int
+    current_streak: int
+    max_streak: int
+
+class UserDifficulty(BaseModel):
+    user_id: str
+    easy: int
+    medium: int
+    hard: int
+    unknown: int
+
+
+class DashboardAggregateResponse(BaseModel):
+    user_id: str
+    stats: UserStats
+    topics: UserTopics
+    difficulty: UserDifficulty
+

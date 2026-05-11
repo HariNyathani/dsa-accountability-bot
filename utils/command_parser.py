@@ -12,48 +12,78 @@ def get_canonical_topic(raw_topic: str) -> Optional[str]:
                 return canonical
     return None
 
-def parse_qdone(content: str) -> List[Tuple[str, int, str]]:
+DIFFICULTIES = {"easy", "medium", "hard"}
+
+def parse_qdone(content: str) -> List[Tuple[str, int, Optional[str], str]]:
     """
-    Parses `!qdone arrays 5 recursion 2 sliding window 3`.
-    Returns a list of tuples: (canonical_topic, count, original_text_matched)
+    Parses `!qdone arrays 5 recursion 2` or `!qdone 2 sum 1` or `!qdone arrays 2 hard`.
+    Returns a list of tuples: (canonical_topic, count, difficulty, original_text_matched)
     """
-    content = content[len("!qdone"):].strip()
-    
-    # Split by numbers
-    pattern = re.compile(r'(\d+)')
-    parts = pattern.split(content)
-    
+    if content.lower().startswith("!qdone"):
+        content = content[len("!qdone"):].strip()
+    elif content.lower().startswith("!qn"):
+        content = content[len("!qn"):].strip()
+    if not content:
+        return []
+
     results = []
-    current_text = ""
-    
-    # We expect text followed by a number. e.g. "arrays", "5", "recursion", "2"
-    # Or number followed by text? "5 arrays". Let's handle standard "topic count".
-    for part in parts:
-        if part.strip() == "":
-            continue
+
+    if ',' in content:
+        chunks = [c.strip().split() for c in content.split(',')]
+    else:
+        # No commas: heuristic space-separated parsing
+        tokens = content.split()
+        chunks = []
+        current_chunk = []
+        
+        for token in tokens:
+            token_lower = token.lower()
+            is_num = token.isdigit()
+            is_diff = token_lower in DIFFICULTIES
             
-        if part.isdigit():
-            count = int(part)
-            # Strip typical separator characters that might accidentally be captured
-            topic_str = current_text.strip(" \t-:=,;")
-            if topic_str:
-                canonical = get_canonical_topic(topic_str)
-                if canonical:
-                    results.append((canonical, count, topic_str))
-                elif len(topic_str.split()) > 0:
-                    # sometimes "dp 3 graphs" -> parts=..., "dp", "3", " graphs" -> current_text="graphs", next part="2"
-                    # We might need a better heuristic, but simple text then number works if they separate it cleanly.
-                    clean_last_word = topic_str.split()[-1].strip(" \t-:=,;")
-                    canonical = get_canonical_topic(clean_last_word) # Try last word if multi-word unmatched
-                    if not canonical and len(topic_str.split()) >= 2:
-                        clean_last_two = " ".join(topic_str.split()[-2:]).strip(" \t-:=,;")
-                        canonical = get_canonical_topic(clean_last_two)
-                    if canonical:
-                        results.append((canonical, count, topic_str))
-            current_text = ""
-        else:
-            current_text += part
+            terminal_found = False
+            normal_seen = False
+            for t in current_chunk:
+                if not t.isdigit() and t.lower() not in DIFFICULTIES:
+                    normal_seen = True
+                elif normal_seen and (t.isdigit() or t.lower() in DIFFICULTIES):
+                    terminal_found = True
+                    
+            if not is_num and not is_diff and terminal_found:
+                chunks.append(current_chunk)
+                current_chunk = [token]
+            else:
+                current_chunk.append(token)
+                
+        if current_chunk:
+            chunks.append(current_chunk)
             
+    for chunk in chunks:
+        if not chunk: continue
+        
+        diff = None
+        cleaned = []
+        for t in chunk:
+            if t.lower() in DIFFICULTIES:
+                diff = t.title()
+            else:
+                cleaned.append(t)
+                
+        # If all cleaned tokens are digits (or empty), the difficulty word was actually the topic
+        if all(t.isdigit() for t in cleaned):
+            cleaned = chunk
+            diff = None
+            
+        count = 1
+        if len(cleaned) > 1 and cleaned[-1].isdigit():
+            count = int(cleaned[-1])
+            cleaned.pop()
+            
+        topic_str = " ".join(cleaned)
+        canonical = get_canonical_topic(topic_str) or topic_str
+        raw_str = " ".join(chunk)
+        results.append((canonical, count, diff, raw_str))
+        
     return results
 
 def parse_plan_tomorrow(content: str) -> bool:

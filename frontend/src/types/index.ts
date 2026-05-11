@@ -97,6 +97,7 @@ export interface UserStats {
   longest_streak: number;
   posted_today: boolean;
   today: string;
+  badges: string[];
 }
 
 export interface TopicFrequency {
@@ -110,6 +111,36 @@ export interface UserTopics {
   unique_topics: number;
   frequency: TopicFrequency[];
 }
+
+export interface ActivityLog {
+  id: number;
+  posted_at: string;
+  message_type: string;
+  message_content: string | null;
+  topics: string | null;
+  parsed_fields: string | null;
+}
+
+export interface UserActivityResponse {
+  user_id: string;
+  recent_logs: ActivityLog[];
+}
+
+export interface UserDifficulty {
+  user_id: string;
+  easy: number;
+  medium: number;
+  hard: number;
+  unknown: number;
+}
+
+export interface DashboardAggregateResponse {
+  user_id: string;
+  stats: UserStats;
+  topics: UserTopics;
+  difficulty: UserDifficulty;
+}
+
 
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 
@@ -202,4 +233,12 @@ export interface ReminderSchedule {
   final_time: string;
   email_time: string;
   email_configured: boolean;
+}
+
+export interface HeatmapResponse {
+  user_id: string;
+  dates: Record<string, number>;
+  active_days: number;
+  current_streak: number;
+  max_streak: number;
 }

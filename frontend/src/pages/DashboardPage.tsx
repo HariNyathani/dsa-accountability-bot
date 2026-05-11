@@ -61,8 +61,9 @@ export default function DashboardPage() {
                     tickFormatter={(v: string) => v.slice(5)} />
                   <YAxis tick={{ fill: "#94A3B8", fontSize: 11 }} />
                   <Tooltip
-                    contentStyle={{ background: "#0F0F1A", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+                    contentStyle={{ background: "#0F0F1A", color: "#F8FAFC", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
                     labelStyle={{ color: "#F8FAFC" }}
+                    itemStyle={{ color: "#F8FAFC" }}
                   />
                   <Area type="monotone" dataKey="total_messages" stroke="#6366f1" fill="url(#gMsg)" strokeWidth={2} name="Messages" />
                   <Area type="monotone" dataKey="users_posted" stroke="#10b981" fill="none" strokeWidth={2} strokeDasharray="5 3" name="Active Users" />
@@ -97,7 +98,8 @@ export default function DashboardPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: "#0F0F1A", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+                    contentStyle={{ background: "#0F0F1A", color: "#F8FAFC", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+                    itemStyle={{ color: "#F8FAFC" }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -126,7 +128,8 @@ export default function DashboardPage() {
                   tick={{ fill: "#F8FAFC", fontSize: 12, fontWeight: 600 }}
                   tickFormatter={(v: string) => v?.length > 15 ? v.slice(0, 13) + "…" : (v || "Unknown")} />
                 <Tooltip
-                  contentStyle={{ background: "#0F0F1A", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+                  contentStyle={{ background: "#0F0F1A", color: "#F8FAFC", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+                  itemStyle={{ color: "#F8FAFC" }}
                 />
                 <Bar dataKey="current_streak" fill="#6366f1" radius={[0, 6, 6, 0]} name="Streak" />
               </BarChart>

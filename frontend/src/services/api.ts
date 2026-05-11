@@ -18,6 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "include",
     ...init,
   });
 
@@ -41,6 +42,9 @@ import type {
   UserStats,
   UserStreak,
   UserTopics,
+  UserActivityResponse,
+  UserDifficulty,
+  DashboardAggregateResponse,
   LeaderboardResponse,
   PlatformOverview,
   TopicAnalytics,
@@ -48,6 +52,7 @@ import type {
   SummaryHistory,
   WeeklyReport,
   ReminderSchedule,
+  HeatmapResponse,
 } from "../types";
 
 export const api = {
@@ -62,6 +67,10 @@ export const api = {
   userStats: (id: string) => request<APIResponse<UserStats>>(`/users/${id}/stats`),
   userStreak: (id: string) => request<APIResponse<UserStreak>>(`/users/${id}/streak`),
   userTopics: (id: string) => request<APIResponse<UserTopics>>(`/users/${id}/topics`),
+  userDifficulty: (id: string) => request<APIResponse<UserDifficulty>>(`/users/${id}/difficulty`),
+  userActivity: (id: string) => request<APIResponse<UserActivityResponse>>(`/users/${id}/activity`),
+  heatmap: (id: string) => request<APIResponse<HeatmapResponse>>(`/users/${id}/heatmap`),
+  dashboardAggregate: (id: string) => request<APIResponse<DashboardAggregateResponse>>(`/users/${id}/dashboard-aggregate`),
 
   // Leaderboard
   leaderboard: (sortBy = "streak", limit = 25) =>
@@ -85,4 +94,16 @@ export const api = {
   // Reminders
   reminders: (userId: string) =>
     request<APIResponse<ReminderSchedule>>(`/reminders/${userId}`),
+
+  updateEmail: (userId: string, email: string) =>
+    request<APIResponse<UserDetail>>(`/users/${userId}/email`, { method: "PUT", body: JSON.stringify({ email }) }),
+
+  updateTimezone: (userId: string, timezone: string) =>
+    request<APIResponse<UserDetail>>(`/users/${userId}/timezone`, { method: "PUT", body: JSON.stringify({ timezone }) }),
+
+  // Progress
+  logProgress: (data: { intent_type: string, topics: { canonical_topic: string, question_count: number, difficulty?: string }[], note?: string, target_date?: string }) =>
+    request<APIResponse<any>>("/progress", { method: "POST", body: JSON.stringify(data) }),
+
+  getExportUrl: (userId: string) => `${BASE}/users/${userId}/export`,
 };

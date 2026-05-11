@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.middleware.error_handler import register_error_handlers
 from api.middleware.request_logger import RequestLoggingMiddleware
-from api.routes import health, users, leaderboard, analytics, summaries, reminders, auth
+from api.routes import health, users, leaderboard, analytics, summaries, reminders, auth, progress
 
 logger = logging.getLogger("dsa_bot.api")
 
@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
     # ── CORS ─────────────────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # tighten in production
+        allow_origins=["http://localhost:3000", "https://dsabot.in", "https://www.dsabot.in"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -73,5 +73,6 @@ def create_app() -> FastAPI:
     app.include_router(analytics.router)
     app.include_router(summaries.router)
     app.include_router(reminders.router)
+    app.include_router(progress.router)
 
     return app

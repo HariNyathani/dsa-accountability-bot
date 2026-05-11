@@ -22,6 +22,7 @@ from api.schemas.common import APIResponse
 from db import database
 from utils.time_utils import today_str, parse_date
 from datetime import timedelta
+from handlers.summary_handler import _extract_exposure_topics
 
 logger = logging.getLogger("dsa_bot.api.analytics")
 
@@ -92,8 +93,9 @@ async def global_topics(
     for user in users:
         logs = await database.get_progress_logs(user["user_id"])
         for log in logs:
-            if log.get("topics"):
-                all_topics.extend(log["topics"].split(", "))
+            if log.get("message_type") == "plan":
+                continue
+            all_topics.extend(_extract_exposure_topics(log))
 
     counter = Counter(all_topics)
     top = counter.most_common(limit)
@@ -149,7 +151,7 @@ async def activity_trend(
             d = log["log_date"]
             if d not in day_map:
                 day_map[d] = {"users_posted": 0, "total_messages": 0}
-            day_map[d]["total_messages"] += 1
+            day_map[d]["total_messages"] += len(log.get("topics", "").split(", ")) if log.get("topics") else 0
 
     # Build sorted daily list
     daily = sorted(

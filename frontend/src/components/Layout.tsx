@@ -3,11 +3,11 @@ import UserMenu from "./UserMenu";
 import { useAuth } from "../contexts/AuthContext";
 
 const NAV = [
-  { to: "/",            icon: "📊", label: "Dashboard" },
+  { to: "/", icon: "📊", label: "Dashboard" },
   { to: "/leaderboard", icon: "🏆", label: "Leaderboard" },
-  { to: "/analytics",   icon: "📈", label: "Analytics" },
-  { to: "/users",       icon: "👥", label: "Users" },
-  { to: "/status",      icon: "🟢", label: "System Status" },
+  { to: "/analytics", icon: "📈", label: "Analytics" },
+  { to: "/users", icon: "👥", label: "Users" },
+  { to: "/status", icon: "🟢", label: "System Status" },
 ];
 
 export default function Layout() {
@@ -17,9 +17,16 @@ export default function Layout() {
     <div className="app-layout">
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <h1>DSA Tracker</h1>
-          <p>Accountability Platform</p>
+        <div className="sidebar-brand" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <img 
+            src="/Dsalogo.png" 
+            alt="DSA Logo" 
+            style={{ height: "64px", width: "auto", objectFit: "contain", flexShrink: 0 }} 
+          />
+          <div>
+            <h1>DSA Tracker</h1>
+            <p style={{ marginTop: "2px" }}>Accountability Platform</p>
+          </div>
         </div>
 
         <nav className="sidebar-nav">
@@ -52,7 +59,7 @@ export default function Layout() {
 
         <div className="sidebar-footer">
           <div className="footer-text">
-            DSA Accountability Bot v1.0<br />
+            DSA Accountability Bot v2.0<br />
             Discord + API + Dashboard
           </div>
           <div className="creator-signature">

@@ -707,9 +707,44 @@ async def cmd_admin(ctx: commands.Context, action: str = "", *, args: str = ""):
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 @bot.command(name="help")
-async def cmd_help(ctx: commands.Context):
+async def cmd_help(ctx: commands.Context, command_name: str = ""):
     """Show all available commands."""
-    embed = discord.Embed(title="🤖 DSA Accountability Bot — Commands", color=0x2ECC71)
+    cmd_name = command_name.lower().strip()
+    
+    if cmd_name == "qdone":
+        embed = discord.Embed(title="📖 Command Help: !qdone", color=0x3498DB)
+        embed.description = (
+            "**`!qdone`** is the power user command for logging multiple topics with full flexibility.\n\n"
+            "**Syntax:** `!qdone <topic> [count] [diff]`\n\n"
+            "• Supports natural language (e.g., 'arrays' or 'array')\n"
+            "• Flexible ordering (e.g., `arrays 2 hard` or `arrays hard 2`)\n"
+            "• Batch logging (separate by commas)\n\n"
+            "**Examples:**\n"
+            "`!qdone arrays` (Logs 1 array question)\n"
+            "`!qdone dp 3` (Logs 3 DP questions)\n"
+            "`!qdone graphs 2 hard, trees 1` (Logs 2 hard graph questions and 1 tree question)"
+        )
+        await ctx.send(embed=embed)
+        return
+        
+    if cmd_name == "qn":
+        embed = discord.Embed(title="📖 Command Help: !qn", color=0x3498DB)
+        embed.description = (
+            "**`!qn`** is for lightning-fast logging using the official LeetCode Question ID.\n\n"
+            "**Syntax:** `!qn <id>`\n\n"
+            "It instantly fetches the official LeetCode title, difficulty, and auto-tags it.\n\n"
+            "**Examples:**\n"
+            "`!qn 1` (Logs Two Sum)\n"
+            "`!qn 73` (Logs Set Matrix Zeroes)"
+        )
+        await ctx.send(embed=embed)
+        return
+
+    embed = discord.Embed(
+        title="🤖 DSA Accountability Bot — Commands",
+        description="💡 Tip: Type `!help <command>` for detailed examples (e.g., `!help qdone`)",
+        color=0x2ECC71
+    )
 
     setup = (
         "**!register** — Join DSA tracking\n"
@@ -727,6 +762,8 @@ async def cmd_help(ctx: commands.Context):
     tracking = (
         "**!plan** `text` — Log study plan\n"
         "**!done** `text` — Log completion\n"
+        "**!qdone** `<topic> [count] [diff]` — Log topics (e.g., arrays 2 hard)\n"
+        "**!qn** `<id>` — Log by LeetCode ID (e.g., 73)\n"
         "**!status** — Today's status\n"
         "**!streak** — Streak info\n"
         "**!weekly** — Weekly summary\n"
@@ -747,6 +784,8 @@ async def cmd_help(ctx: commands.Context):
             "`!setreminders ... @user` · `!mysettings @user`\n"
             "`!admin users` · `!admin missed` · `!admin forcesummary`"
         )
+        if config.BOT_OWNER_ID and ctx.author.id == config.BOT_OWNER_ID:
+            admin_text += "\n\n**Owner Suite:**\n`!qpurge @user` — Delete all user progress\n`!qundo @user` — Delete latest entry"
         embed.add_field(name="🔐 Admin", value=admin_text, inline=False)
 
     embed.set_footer(text="Post daily in your DSA channel to stay accountable! 💪")
