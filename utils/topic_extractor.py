@@ -71,8 +71,9 @@ def normalize_topic(raw_topic: str) -> str:
 
 
 # Aliases for free-text extraction: maps keyword -> canonical topic
-# This allows "quick sort", "merge sort", etc. to match "Sorting"
+# This allows "quick sort", "merge sort", singular forms, etc. to match canonical names
 _EXTRACTION_ALIASES: Dict[str, str] = {
+    # Sorting variants
     "sort": "Sorting",
     "sorting": "Sorting",
     "quick sort": "Sorting",
@@ -85,6 +86,16 @@ _EXTRACTION_ALIASES: Dict[str, str] = {
     "selection sort": "Sorting",
     "counting sort": "Sorting",
     "radix sort": "Sorting",
+    # Singular -> Plural canonical mappings
+    "array": "Arrays",
+    "string": "Strings",
+    "linked list": "Linked Lists",
+    "stack": "Stacks",
+    "queue": "Queues",
+    "tree": "Trees",
+    "graph": "Graphs",
+    "heap": "Heaps",
+    # Technique / concept aliases
     "dp": "Dynamic Programming",
     "bfs": "Graphs",
     "dfs": "Graphs",

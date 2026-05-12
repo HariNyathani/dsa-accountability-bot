@@ -32,6 +32,11 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     if not content:
         return
 
+    logger.info(
+        f"[GATE:ENTRY] user={message.author.id} channel={message.channel.id} "
+        f"content={content[:80]!r}"
+    )
+
     # Admin Suite Commands
     if config.BOT_OWNER_ID and message.author.id == config.BOT_OWNER_ID:
         lower_content = content.lower()
@@ -54,11 +59,19 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     # Look up whether this user is registered AND tracking this channel
     user = await database.get_user_with_settings(message.author.id)
     if not user:
+        logger.debug(f"[GATE:NOT_REGISTERED] user={message.author.id} — ignoring")
         return
     if not user.get("is_active"):
+        logger.debug(f"[GATE:INACTIVE] user={message.author.id} — ignoring")
         return
     if user.get("tracked_channel_id") != message.channel.id:
+        logger.debug(
+            f"[GATE:WRONG_CHANNEL] user={message.author.id} "
+            f"tracked={user.get('tracked_channel_id')} actual={message.channel.id}"
+        )
         return
+
+    logger.info(f"[GATE:PASS] user={message.author.id} — routing to progress_service")
 
 
 
@@ -74,6 +87,7 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     )
 
     if result.get("status") == "skipped":
+        logger.info(f"[GATE:RESULT_SKIPPED] user={message.author.id} — progress_service returned 'skipped'")
         return
         
     if result.get("status") == "error":

@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 from db import database
 from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics
@@ -8,6 +9,160 @@ from utils.command_parser import parse_qdone, parse_plan_tomorrow
 from utils.matcher import fuzzy_match_problem
 
 logger = logging.getLogger("dsa_bot.progress_service")
+
+
+# ── Multiline / Bullet-List Parser ──────────────────────────────────────────
+
+_BULLET_RE = re.compile(r'^\s*[-*•]\s+(.+)', re.MULTILINE)
+
+# Platform names that are "noise" — they appear as headers but carry no
+# topic meaning.  Stripped from headers; if a header becomes empty after
+# stripping, its bullets are merged into the previous group.
+_PLATFORM_NOISE = {
+    "cses", "atcoder", "leetcode", "codeforces", "codechef",
+    "striver", "neetcode", "hackerrank", "hackerearth", "gfg",
+    "geeksforgeeks", "interviewbit", "spoj",
+}
+
+
+def _strip_platform_noise(header: str) -> str:
+    """Remove platform-name words from a header string.
+
+    'CSES Graph' → 'Graph',  'Atcoder' → '',  'Striver DP' → 'DP'
+    """
+    words = header.split()
+    cleaned = [w for w in words if w.lower() not in _PLATFORM_NOISE]
+    return " ".join(cleaned).strip()
+
+
+def _parse_bullet_list(content: str) -> list[dict] | None:
+    """
+    Detect a "Topic Header + bullet items" pattern.
+
+    Examples it should match:
+        CSES Graph
+         - Problem A
+         - Problem B
+
+        Graphs:
+         • BFS basics
+         • Dijkstra
+
+    Platform-noise headers (e.g. 'Atcoder', 'CSES') are transparent:
+    their bullets are merged into the preceding group.
+
+    Returns a list of dicts with keys: header, items
+    Returns None if no bullet-list structure is detected.
+    """
+    lines = content.strip().splitlines()
+    if len(lines) < 2:
+        return None
+
+    # Find bullet lines
+    bullet_indices = [i for i, line in enumerate(lines) if _BULLET_RE.match(line)]
+    if not bullet_indices:
+        return None
+
+    # Group bullets under their nearest preceding non-bullet header.
+    # Pure-noise headers (platform names with no topic) are skipped so
+    # their bullets stay attached to the last real header.
+    groups = []
+    current_header = None
+    current_items = []
+
+    for i, line in enumerate(lines):
+        bullet_match = _BULLET_RE.match(line)
+        if bullet_match:
+            if current_header is None:
+                # Bullets without a header — use empty context
+                current_header = ""
+            current_items.append(bullet_match.group(1).strip())
+        else:
+            # Non-bullet line — potential header
+            raw_header = line.strip().rstrip(':').strip()
+            if not raw_header:
+                continue
+
+            cleaned_header = _strip_platform_noise(raw_header)
+
+            if not cleaned_header:
+                # Pure platform noise (e.g. "Atcoder") — DON'T start
+                # a new group.  Subsequent bullets stay with current_header.
+                logger.info(f"[GATE:BULLET_NOISE] Skipping platform-noise header: '{raw_header}'")
+                continue
+
+            # Real header — flush previous group and start new one
+            if current_header is not None and current_items:
+                groups.append({"header": current_header, "items": current_items})
+            current_header = cleaned_header
+            current_items = []
+
+    # Flush last group
+    if current_header is not None and current_items:
+        groups.append({"header": current_header, "items": current_items})
+
+    if not groups:
+        return None
+
+    logger.info(f"[GATE:BULLET_PARSE] Detected {len(groups)} bullet group(s): {groups}")
+    return groups
+
+
+# ── Natural-Language LeetCode Fallback ──────────────────────────────────────
+
+_ACTION_VERBS_RE = re.compile(
+    r'\b(solved|done|completed|finished|practiced|attempted|revised|reviewed|did)\b',
+    re.IGNORECASE
+)
+
+
+def _strip_action_verbs(text: str) -> str:
+    """Strip common action-verb prefixes so 'solved Two Sum' becomes 'Two Sum'."""
+    return _ACTION_VERBS_RE.sub('', text).strip(' ,.-:')
+
+
+async def _try_leetcode_fallback(content: str) -> list[dict]:
+    """
+    Attempt to fuzzy-match the entire message (or sub-lines) against the
+    LeetCode database.  Returns a list of match dicts (same shape as
+    fuzzy_match_problem output), or an empty list.
+    """
+    matches = []
+
+    # Strategy 1: Try the whole message (minus action verbs) as one query
+    candidate = _strip_action_verbs(content).strip()
+    # Remove LeetCode URLs (already handled upstream)
+    candidate = re.sub(r'https?://\S+', '', candidate).strip()
+
+    if candidate:
+        match = await fuzzy_match_problem(candidate, threshold=75)
+        if match:
+            logger.info(
+                f"[GATE:LC_FALLBACK] Whole-message match: '{candidate}' → "
+                f"'{match['title']}' (score={match['score']:.1f})"
+            )
+            matches.append(match)
+            return matches
+
+    # Strategy 2: Try each non-blank line individually
+    seen_titles = set()
+    for line in content.strip().splitlines():
+        line_candidate = _strip_action_verbs(line).strip()
+        if len(line_candidate) < 3:
+            continue
+        match = await fuzzy_match_problem(line_candidate, threshold=78)
+        if match and match["title"] not in seen_titles:
+            logger.info(
+                f"[GATE:LC_FALLBACK] Line match: '{line_candidate}' → "
+                f"'{match['title']}' (score={match['score']:.1f})"
+            )
+            seen_titles.add(match["title"])
+            matches.append(match)
+
+    return matches
+
+
+# ── Main Entry Point ────────────────────────────────────────────────────────
 
 async def process_progress_submission(
     user_id: int,
@@ -35,6 +190,7 @@ async def process_progress_submission(
 
     # Determine message type
     msg_type = _classify_message(content)
+    logger.info(f"[GATE:CLASSIFY] user={user_id} msg_type='{msg_type}' content={content[:80]!r}")
 
     # Parsing logic
     parsed_fields_dict = {
@@ -71,11 +227,11 @@ async def process_progress_submission(
         })
         topics.append("Rest")
 
-    import re
     url_match = re.search(r'leetcode\.com/problems/([^/>\s]+)', content_lower)
     is_log_command = content_lower.startswith("!log ")
     
     if msg_type != "rest" and (is_log_command or url_match):
+        logger.info(f"[GATE:URL_OR_LOG] user={user_id} is_log={is_log_command} has_url={bool(url_match)}")
         if url_match:
             target = url_match.group(1)
             original_display = url_match.group(0)
@@ -116,6 +272,7 @@ async def process_progress_submission(
         topics.append(match["title"])
         
     elif web_topics is not None or content_lower.startswith("!qdone") or content_lower.startswith("!qn"):
+        logger.info(f"[GATE:QDONE_QN] user={user_id} web_topics={web_topics is not None}")
         is_qn = content_lower.startswith("!qn")
         if web_topics is not None:
             qdone_results = [(t["canonical_topic"], t["question_count"], t.get("difficulty")) for t in web_topics]
@@ -180,18 +337,130 @@ async def process_progress_submission(
         msg_type = "done"
         parsed_fields_dict["intent_type"] = "done"
     elif msg_type != "rest":
-        # Standard extraction without fuzzy matching
-        extracted = extract_topics(content)
-        
-        for canon, count in extracted:
-            parsed_fields_dict["log"].append({
-                "canonical_topic": canon,
-                "normalized_topic": canon,
-                "question_count": count,
-                "leetcode_topics": canon
-            })
-            topics.extend([canon] * count)
-        
+        logger.info(f"[GATE:FREETEXT] user={user_id} Entering free-text extraction pipeline")
+
+        # ── STAGE 1: Bullet-list parsing (checked FIRST) ────────────────
+        # If the message has a "header + bullets" structure, each bullet
+        # counts as 1 question.  This MUST run before keyword extraction
+        # because keyword extraction on the full text would find the
+        # header keyword and report count=1, ignoring the bullet items.
+        bullet_groups = _parse_bullet_list(content)
+        if bullet_groups:
+            logger.info(f"[GATE:BULLET_LIST] user={user_id} Detected bullet list, processing items")
+            # Sticky topic: if a group's header has no recognizable topic,
+            # inherit the last known canonical topic so platform-noise
+            # headers like "Atcoder" don't orphan their bullets.
+            last_known_canonical = None
+
+            for group in bullet_groups:
+                header = group["header"]
+                # Try to get a canonical topic from the header (e.g. "Graph" → "Graphs")
+                header_topics = extract_topics(header)
+                header_canonical = header_topics[0][0] if header_topics else None
+
+                if header_canonical:
+                    last_known_canonical = header_canonical
+                    logger.info(f"[GATE:BULLET_TOPIC_SET] New sticky topic: '{header_canonical}' (from header '{header}')")
+                else:
+                    # Inherit last known topic
+                    header_canonical = last_known_canonical
+                    logger.info(f"[GATE:BULLET_TOPIC_INHERIT] Header '{header}' has no topic, inheriting '{last_known_canonical}'")
+
+                for item_text in group["items"]:
+                    # Try LeetCode match on each bullet item
+                    item_match = await fuzzy_match_problem(item_text, threshold=75)
+                    if item_match:
+                        logger.info(
+                            f"[GATE:BULLET_LC] Bullet '{item_text}' → "
+                            f"'{item_match['title']}' (score={item_match['score']:.1f})"
+                        )
+                        leetcode_matches.append({
+                            "original": item_match["title"],
+                            "matched_title": item_match["title"],
+                            "difficulty": item_match["difficulty"],
+                            "official_topics": item_match["topics_str"],
+                            "score": item_match["score"],
+                            "question_count": 1,
+                        })
+                        parsed_fields_dict["log"].append({
+                            "canonical_topic": item_match["title"],
+                            "normalized_topic": item_match["title"],
+                            "question_count": 1,
+                            "leetcode_title": item_match["title"],
+                            "leetcode_topics": item_match["topics_str"],
+                            "leetcode_difficulty": item_match["difficulty"],
+                        })
+                        topics.append(item_match["title"])
+                    elif header_canonical:
+                        # No LC match, but we have a topic (own or inherited)
+                        logger.info(
+                            f"[GATE:BULLET_TOPIC] Bullet '{item_text}' logged under topic '{header_canonical}'"
+                        )
+                        parsed_fields_dict["log"].append({
+                            "canonical_topic": header_canonical,
+                            "normalized_topic": header_canonical,
+                            "question_count": 1,
+                            "leetcode_topics": header_canonical
+                        })
+                        topics.append(header_canonical)
+
+            if topics:
+                msg_type = "done"
+                parsed_fields_dict["intent_type"] = "done"
+
+        # ── STAGE 2: Standard keyword extraction (only if no bullets) ───
+        if not bullet_groups:
+            extracted = extract_topics(content)
+
+            for canon, count in extracted:
+                parsed_fields_dict["log"].append({
+                    "canonical_topic": canon,
+                    "normalized_topic": canon,
+                    "question_count": count,
+                    "leetcode_topics": canon
+                })
+                topics.extend([canon] * count)
+
+            if extracted:
+                logger.info(f"[GATE:KEYWORD_HIT] user={user_id} Keyword extraction found: {extracted}")
+
+        # ── STAGE 3: LeetCode fallback for unrecognized free-text ───────
+        # If we STILL have nothing, try to fuzzy-match the whole message
+        # (or individual lines) against the LeetCode problem database.
+        if not topics:
+            logger.info(f"[GATE:LC_FALLBACK_START] user={user_id} No keywords/bullets found, trying LeetCode DB fallback")
+            lc_fallback_matches = await _try_leetcode_fallback(content)
+
+            if lc_fallback_matches:
+                for match in lc_fallback_matches:
+                    # IMPORTANT: "original" MUST equal match["title"] because
+                    # topics[] also stores match["title"].  _build_feedback
+                    # uses "original" to de-duplicate against topics[]; if
+                    # they don't match, the same problem appears twice.
+                    leetcode_matches.append({
+                        "original": match["title"],
+                        "matched_title": match["title"],
+                        "difficulty": match["difficulty"],
+                        "official_topics": match["topics_str"],
+                        "score": match["score"],
+                        "question_count": 1,
+                    })
+                    parsed_fields_dict["log"].append({
+                        "canonical_topic": match["title"],
+                        "normalized_topic": match["title"],
+                        "question_count": 1,
+                        "leetcode_title": match["title"],
+                        "leetcode_topics": match["topics_str"],
+                        "leetcode_difficulty": match["difficulty"],
+                    })
+                    topics.append(match["title"])
+                msg_type = "done"
+                parsed_fields_dict["intent_type"] = "done"
+                logger.info(f"[GATE:LC_FALLBACK_HIT] user={user_id} Fallback matched {len(lc_fallback_matches)} problem(s)")
+            else:
+                logger.info(f"[GATE:LC_FALLBACK_MISS] user={user_id} No LeetCode match found either")
+
+        # Handle plan-tomorrow detection (applies regardless of topic extraction)
         is_plan_tomorrow = parse_plan_tomorrow(content)
         if is_plan_tomorrow:
             from utils.time_utils import parse_date
@@ -206,6 +475,7 @@ async def process_progress_submission(
 
     # Silence the Noise: Abort if nothing was extracted and it's not a plan
     if msg_type != "plan" and not topics:
+        logger.info(f"[GATE:SKIP] user={user_id} No topics found and not a plan — skipping")
         return {
             "status": "skipped"
         }
