@@ -165,7 +165,7 @@ async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, cur
     await _get_user_or_404(user_id)
     uid_int = int(user_id)
     await database.update_user_email(uid_int, payload.email)
-    return await get_user(user_id)
+    return await get_user(user_id, current_user)
 
 
 @router.put(
@@ -184,7 +184,7 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
             with conn.cursor() as cur:
                 cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (payload.timezone, uid_int))
     await asyncio.to_thread(_update)
-    return await get_user(user_id)
+    return await get_user(user_id, current_user)
 
 
 # ── Dashboard Aggregate ──────────────────────────────────────────────────────
