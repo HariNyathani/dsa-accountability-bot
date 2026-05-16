@@ -170,33 +170,39 @@ export default function UserProfilePage() {
         {/* Difficulty Distribution */}
         <div className="card">
           <div className="chart-title">🎯 Difficulty Distribution</div>
-          {aggregate.loading ? <SkeletonRows count={3} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0) ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
-              {[
-                { label: "Easy", count: d.easy, color: "#10b981" },
-                { label: "Medium", count: d.medium, color: "#f59e0b" },
-                { label: "Hard", count: d.hard, color: "#f43f5e" },
-              ].map(item => {
-                const total = d.easy + d.medium + d.hard;
-                const pct = total > 0 ? (item.count / total) * 100 : 0;
-                return (
-                  <div key={item.label}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
-                      <span style={{ color: "#94A3B8" }}>{item.label}</span>
-                      <span style={{ fontWeight: 600 }}>{item.count} <span style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+          {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
+            (() => {
+              const expertCount = d.expert || 0;
+              const total = d.easy + d.medium + d.hard + expertCount;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
+                  {[
+                    { label: "Easy", count: d.easy, color: "#10b981" },
+                    { label: "Medium", count: d.medium, color: "#f59e0b" },
+                    { label: "Hard", count: d.hard, color: "#f43f5e" },
+                    { label: "Expert (CF 2000+)", count: expertCount, color: "#9f1239" },
+                  ].map(item => {
+                    const pct = total > 0 ? (item.count / total) * 100 : 0;
+                    return (
+                      <div key={item.label}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
+                          <span style={{ color: item.color, fontWeight: 500 }}>{item.label}</span>
+                          <span style={{ fontWeight: 600 }}>{item.count} <span style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+                        </div>
+                        <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", overflow: "hidden" }}>
+                          <div style={{ width: `${pct}%`, height: "100%", background: item.color, borderRadius: "4px", transition: "width 0.5s ease" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {d.unknown > 0 && (
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>+ {d.unknown} unknown difficulty</span>
                     </div>
-                    <div style={{ width: "100%", height: "8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", overflow: "hidden" }}>
-                      <div style={{ width: `${pct}%`, height: "100%", background: item.color, borderRadius: "4px", transition: "width 0.5s ease" }} />
-                    </div>
-                  </div>
-                );
-              })}
-              {d.unknown > 0 && (
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: "0.75rem", color: "#64748b" }}>+ {d.unknown} unknown difficulty</span>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()
           ) : (
             <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see distribution." />
           )}

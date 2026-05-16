@@ -26,6 +26,7 @@ from handlers.summary_handler import (
     generate_weekly_summary_all,
     get_status_report,
     get_topic_summary,
+    get_difficulty_summary,
     _build_summary_embed,
 )
 from handlers.leaderboard_handler import build_leaderboard, get_missed_today_report
@@ -496,27 +497,6 @@ async def cmd_resetconfig(ctx: commands.Context):
 
 # ── User Tracking Commands ───────────────────────────────────────────────────
 
-@bot.command(name="plan")
-async def cmd_plan(ctx: commands.Context, *, text: str = ""):
-    """Log a planned study message. Usage: !plan <what you plan>"""
-    if not await _require_registered(ctx):
-        return
-    if not text:
-        await ctx.send("📋 Usage: `!plan <what you plan to study today>`")
-        return
-    await ctx.send("📋 Plan recorded for today! Stay focused. 🎯")
-
-
-@bot.command(name="done")
-async def cmd_done(ctx: commands.Context, *, text: str = ""):
-    """Log a completed study message. Usage: !done <what you completed>"""
-    if not await _require_registered(ctx):
-        return
-    if not text:
-        await ctx.send("✅ Usage: `!done <what you completed today>`")
-        return
-    await ctx.send("✅ Great job! Progress logged. Keep it up! 🔥")
-
 
 @bot.command(name="status")
 async def cmd_status(ctx: commands.Context):
@@ -607,6 +587,76 @@ async def cmd_topics(ctx: commands.Context):
     )
     embed.add_field(name="🏅 Topic Ranking", value=topics_text, inline=False)
     embed.set_footer(text="DSA Accountability Bot • Track what you study!")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="difficulty", aliases=["diff"])
+async def cmd_difficulty(ctx: commands.Context, *, mention: str = ""):
+    """Show difficulty distribution. Usage: !difficulty [@user]"""
+    target_id, _, err = await _resolve_target_user(ctx, mention.split() if mention else [])
+    if err:
+        await ctx.send(err)
+        return
+
+    if not await database.is_registered(target_id):
+        if target_id == ctx.author.id:
+            await ctx.send("❌ You're not registered yet! Run `!register` first.")
+        else:
+            await ctx.send(f"❌ <@{target_id}> is not registered.")
+        return
+
+    counts = await get_difficulty_summary(target_id)
+
+    easy    = counts.get("Easy",    0)
+    medium  = counts.get("Medium",  0)
+    hard    = counts.get("Hard",    0)
+    expert  = counts.get("Expert",  0)
+    unknown = counts.get("Unknown", 0)
+    total   = easy + medium + hard + expert  # unknown intentionally excluded from %
+
+    if total == 0 and unknown == 0:
+        label = f"<@{target_id}>" if target_id != ctx.author.id else "You"
+        await ctx.send(f"📊 {label} haven't logged any problems yet!")
+        return
+
+    has_expert = expert > 0
+    embed_color = 0x9F1239 if has_expert else 0x6366F1
+
+    title = (
+        f"📊 Difficulty Distribution — <@{target_id}>"
+        if target_id != ctx.author.id
+        else "📊 Your DSA Difficulty Distribution"
+    )
+    embed = discord.Embed(title=title, color=embed_color)
+
+    def _bar(count: int, of: int, width: int = 12) -> str:
+        """Render a Unicode block progress bar."""
+        if of == 0:
+            return "░" * width
+        filled = round((count / of) * width)
+        return "█" * filled + "░" * (width - filled)
+
+    tiers = [
+        ("🟢 Easy",              easy,   total),
+        ("🟡 Medium",            medium, total),
+        ("🔴 Hard",              hard,   total),
+        ("💀 Expert (CF 2000+)", expert, total),
+    ]
+
+    for label, count, denom in tiers:
+        pct = round((count / denom) * 100) if denom > 0 else 0
+        bar = _bar(count, denom)
+        embed.add_field(
+            name=f"{label}  —  **{count}** ({pct}%)",
+            value=f"`{bar}`",
+            inline=False,
+        )
+
+    footer_parts = [f"Total solved: {total}"]
+    if unknown > 0:
+        footer_parts.append(f"{unknown} without difficulty tag")
+    embed.set_footer(text=" • ".join(footer_parts) + " • DSA Accountability Bot")
+
     await ctx.send(embed=embed)
 
 
@@ -730,12 +780,16 @@ async def cmd_help(ctx: commands.Context, command_name: str = ""):
     if cmd_name == "qn":
         embed = discord.Embed(title="📖 Command Help: !qn", color=0x3498DB)
         embed.description = (
-            "**`!qn`** is for lightning-fast logging using the official LeetCode Question ID.\n\n"
+            "**`!qn`** is for lightning-fast logging by problem ID — supports **LeetCode and Codeforces**.\n\n"
             "**Syntax:** `!qn <id>`\n\n"
-            "It instantly fetches the official LeetCode title, difficulty, and auto-tags it.\n\n"
-            "**Examples:**\n"
-            "`!qn 1` (Logs Two Sum)\n"
-            "`!qn 73` (Logs Set Matrix Zeroes)"
+            "It instantly fetches the official title, difficulty, and auto-tags it.\n\n"
+            "**LeetCode — use the numeric question ID:**\n"
+            "`!qn 1` → Two Sum [Easy]\n"
+            "`!qn 73` → Set Matrix Zeroes [Medium]\n\n"
+            "**Codeforces — use the contest ID + problem letter:**\n"
+            "`!qn 4A` → Watermelon [Easy]\n"
+            "`!qn 2211B` → Xor Product [Expert]\n\n"
+            "You can also log by URL or full title using `!log`."
         )
         await ctx.send(embed=embed)
         return
@@ -760,14 +814,14 @@ async def cmd_help(ctx: commands.Context, command_name: str = ""):
     embed.add_field(name="⚙️ Setup", value=setup, inline=False)
 
     tracking = (
-        "**!plan** `text` — Log study plan\n"
-        "**!done** `text` — Log completion\n"
         "**!qdone** `<topic> [count] [diff]` — Log topics (e.g., arrays 2 hard)\n"
         "**!qn** `<id>` — Log by LeetCode ID (e.g., 73)\n"
+        "**!log** `<url>` — Log by URL (LeetCode/Codeforces)\n"
         "**!status** — Today's status\n"
         "**!streak** — Streak info\n"
         "**!weekly** — Weekly summary\n"
         "**!topics** — Topic analysis\n"
+        "**!difficulty** — Difficulty distribution (Easy/Medium/Hard/Expert)\n"
         "**!exportcsv** — Export logs\n"
         "**!insights** — AI analysis (Gemini)"
     )

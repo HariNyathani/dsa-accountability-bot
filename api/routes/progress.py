@@ -2,9 +2,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from typing import Optional
 
-from api.schemas.progress import LogProgressRequest, LogProgressResponse, LogProgressData
+from api.schemas.progress import (
+    LogProgressRequest, LogProgressResponse, LogProgressData,
+    PlatformLogRequest, PlatformLogResponse, PlatformLogParsedData,
+)
 from api.middleware.auth import get_current_user
 from services.progress_service import process_progress_submission
+from utils.resolvers import resolve_problem, RESOLVERS
 
 logger = logging.getLogger("dsa_bot.api.progress")
 
@@ -83,6 +87,8 @@ async def log_progress(
                 streak_longest=streak.get("longest_streak", 0)
             )
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error logging progress from web: {e}")
         raise HTTPException(status_code=500, detail="Failed to log progress")
@@ -122,3 +128,155 @@ async def log_rest_day(user_id: int = Depends(require_auth)):
     except Exception as e:
         logger.error(f"Error logging rest day from web: {e}")
         raise HTTPException(status_code=500, detail="Failed to log rest day")
+
+
+@router.post(
+    "/platform",
+    response_model=PlatformLogResponse,
+    summary="Log a problem from a competitive programming platform",
+    description="Resolve a problem by ID/URL on a supported platform (LeetCode, Codeforces), then log it as progress.",
+)
+async def log_platform_problem(
+    request: PlatformLogRequest,
+    user_id: int = Depends(require_auth),
+):
+    """
+    Platform-aware problem logging.
+    Uses the Strategy-pattern resolver registry to dispatch to the correct
+    platform resolver (LeetCode, Codeforces).
+    """
+    platform = request.platform.lower().strip()
+    identifier = request.problem_identifier.strip()
+
+    # ── Gate: Only registered platforms are supported ──────────────────
+    if platform not in RESOLVERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Platform '{platform}' is not supported. Available: {', '.join(RESOLVERS.keys())}.",
+        )
+
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Problem identifier cannot be empty.")
+
+    try:
+        # ── Step 1: Resolve problem via platform-specific resolver ────
+        match = await resolve_problem(identifier, platform=platform)
+
+        if not match:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not find a {platform.title()} problem matching '{identifier}'. Try a valid problem ID, URL, or title.",
+            )
+
+        # ── Step 2: Attempt the standard pipeline first (works for LC) ─
+        content = f"!log {identifier}"
+
+        result = await process_progress_submission(
+            user_id=user_id,
+            content=content,
+            source="web",
+        )
+
+        # ── Step 3: Direct insertion for non-LC platforms ─────────────
+        # The NLP pipeline in progress_service is LeetCode-aware only.
+        # For Codeforces, we bypass it and insert directly using the
+        # resolved data from the Strategy-pattern resolver.
+        if result.get("status") in ("skipped", "error") and platform != "leetcode":
+            from db import database
+            from utils.time_utils import today_str, now_iso
+            from utils.streak_utils import on_post
+            import json
+
+            user = await database.get_user(user_id)
+            user_tz = user.get("timezone", "") if user else ""
+            today = today_str(user_tz)
+            now = now_iso(user_tz)
+
+            parsed_fields_dict = {
+                "intent_type": "done",
+                "target_date": today,
+                "source": "web",
+                "platform": platform,
+                "log": [{
+                    "canonical_topic": match.title,
+                    "normalized_topic": match.title,
+                    "question_count": 1,
+                    # Unified keys — used by analytics aggregation
+                    "difficulty": match.difficulty_norm,
+                    "topics": match.topics_str,
+                    # Platform-specific keys — kept for provenance/debugging
+                    f"{platform}_title": match.title,
+                    f"{platform}_topics": match.topics_str,
+                    f"{platform}_difficulty": match.difficulty_norm,
+                    f"{platform}_difficulty_raw": match.difficulty_raw,
+                }],
+            }
+
+            # Preserve raw CF rating in parsed_fields
+            if match.extra.get("cf_rating") is not None:
+                parsed_fields_dict["log"][0]["cf_rating"] = match.extra["cf_rating"]
+
+            # Rate limit check
+            current_sum = await database.get_daily_question_count(user_id, today)
+            if (current_sum + 1) > 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Daily limit reached (200/day). Quality over quantity, legend! See you tomorrow.",
+                )
+
+            await database.save_progress_log(
+                user_id=user_id,
+                channel_id=0,
+                message_content=content,
+                topics=match.title,
+                posted_at=now,
+                log_date=today,
+                message_type="done",
+                parsed_fields=json.dumps(parsed_fields_dict),
+                platform=platform,
+            )
+
+            await database.mark_posted(user_id, today)
+            streak = await on_post(user_id, today)
+
+            result = {
+                "status": "success",
+                "feedback_message": (
+                    f"✅ Logged 1 question: {match.title} [{match.difficulty_norm}]"
+                    + (f" (Auto-tagged: {match.topics_str})" if match.topics_str else "")
+                ),
+                "streak": streak,
+            }
+
+        elif result.get("status") == "error":
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("feedback_message", "Failed to log platform problem."),
+            )
+        elif result.get("status") == "skipped":
+            raise HTTPException(
+                status_code=400,
+                detail="This problem could not be matched or was skipped.",
+            )
+
+        streak = result.get("streak", {})
+
+        return PlatformLogResponse(
+            success=True,
+            message=result.get("feedback_message", "Problem logged successfully."),
+            data=PlatformLogParsedData(
+                title=match.title,
+                difficulty=match.difficulty_norm,
+                topics=match.topics,
+                question_id=int(match.problem_id) if match.problem_id.isdigit() else 0,
+                platform=platform,
+                streak_current=streak.get("current_streak", 0),
+                streak_longest=streak.get("longest_streak", 0),
+            ),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in platform log: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to log platform problem.")

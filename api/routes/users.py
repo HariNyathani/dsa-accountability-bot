@@ -203,9 +203,10 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
     logs = await database.get_progress_logs(uid_int)
     
     all_topics = []
-    diff_counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Unknown": 0}
+    diff_counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Expert": 0, "Unknown": 0}
     
     from utils.topic_extractor import normalize_topic, STRICT_CANONICAL_TOPICS
+    from handlers.summary_handler import _get_entry_difficulty, _get_entry_topics
 
     def _map_only(tags_list):
         return [normalize_topic(t) for t in tags_list if t.strip()]
@@ -234,8 +235,8 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
                 for entry in log_entries:
                     q_count = entry.get("question_count", 1)
                     
-                    # Difficulty
-                    diff = entry.get("leetcode_difficulty")
+                    # Difficulty (platform-agnostic)
+                    diff = _get_entry_difficulty(entry)
                     if diff:
                         diff_title = diff.strip().title()
                         if diff_title in diff_counts:
@@ -245,10 +246,10 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
                     else:
                         diff_counts["Unknown"] += q_count
                         
-                    # Topics
-                    lc_topics = entry.get("leetcode_topics")
-                    if lc_topics:
-                        extracted_tags = [t.strip() for t in lc_topics.split(",") if t.strip()]
+                    # Topics (platform-agnostic)
+                    entry_topics = _get_entry_topics(entry)
+                    if entry_topics:
+                        extracted_tags = [t.strip() for t in entry_topics.split(",") if t.strip()]
                         normalized_tags = _normalize_and_dedup(extracted_tags)
                         all_topics.extend(normalized_tags * q_count)
                         topics_added = True
@@ -280,6 +281,7 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
         easy=diff_counts["Easy"],
         medium=diff_counts["Medium"],
         hard=diff_counts["Hard"],
+        expert=diff_counts["Expert"],
         unknown=diff_counts["Unknown"],
     )
     
@@ -468,6 +470,7 @@ async def get_user_difficulty(user_id: str, current_user = Depends(get_current_u
             easy=diff_data["Easy"],
             medium=diff_data["Medium"],
             hard=diff_data["Hard"],
+            expert=diff_data.get("Expert", 0),
             unknown=diff_data["Unknown"],
         )
     )

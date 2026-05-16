@@ -67,17 +67,18 @@ async def init_db():
                     if cur.rowcount > 0:
                         logger.info(f"Sanitized DB: Deleted {cur.rowcount} garbage rows from progress_logs.")
                         
-                    cur.execute("""
-                        DELETE FROM progress_logs 
-                        WHERE id IN (
-                            SELECT id 
-                            FROM progress_logs, jsonb_array_elements(parsed_fields->'log') elem 
-                            GROUP BY id 
-                            HAVING sum((elem->>'question_count')::int) > 25
-                        )
-                    """)
-                    if cur.rowcount > 0:
-                        logger.info(f"Sanitized DB: Deleted {cur.rowcount} clown data rows (>25 q's) from progress_logs.")
+                    # NOTE: Sanitizer disabled — limit raised to 200 for testing.
+                    # cur.execute("""
+                    #     DELETE FROM progress_logs
+                    #     WHERE id IN (
+                    #         SELECT id
+                    #         FROM progress_logs, jsonb_array_elements(parsed_fields->'log') elem
+                    #         GROUP BY id
+                    #         HAVING sum((elem->>'question_count')::int) > 25
+                    #     )
+                    # """)
+                    # if cur.rowcount > 0:
+                    #     logger.info(f"Sanitized DB: Deleted {cur.rowcount} clown data rows (>25 q's) from progress_logs.")
                 conn.commit()
     return await _run_sync(_sync)
 
@@ -299,15 +300,15 @@ async def get_all_active_users_with_settings() -> List[dict]:
 
 async def save_progress_log(user_id: int, channel_id: int, message_content: str, topics: str,
                             posted_at: str, log_date: str, message_type: str = "progress",
-                            parsed_fields: str = None):
+                            parsed_fields: str = None, platform: str = "leetcode"):
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO progress_logs
-                        (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type))
+                        (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform))
     return await _run_sync(_sync)
 
 
@@ -432,16 +433,35 @@ async def get_message_count(user_id: int, start_date: str = "", end_date: str = 
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
+                # Sum question_count from parsed_fields JSONB (accurate for all platforms).
+                # Falls back to comma-counting the topics column for legacy rows that
+                # pre-date parsed_fields (no JSONB present).
+                date_filter = ""
+                params: list = [user_id]
                 if start_date and end_date:
-                    cur.execute("""
-                        SELECT COALESCE(SUM(CASE WHEN topics IS NOT NULL AND topics != '' THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1 ELSE 0 END), 0) as cnt FROM progress_logs
-                        WHERE user_id = %s AND log_date BETWEEN %s AND %s AND message_type NOT IN ('plan', 'rest')
-                    """, (user_id, start_date, end_date))
-                else:
-                    cur.execute("""
-                        SELECT COALESCE(SUM(CASE WHEN topics IS NOT NULL AND topics != '' THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1 ELSE 0 END), 0) as cnt FROM progress_logs 
-                        WHERE user_id = %s AND message_type NOT IN ('plan', 'rest')
-                    """, (user_id,))
+                    date_filter = "AND log_date BETWEEN %s AND %s"
+                    params += [start_date, end_date]
+
+                cur.execute(f"""
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN parsed_fields IS NOT NULL
+                                 AND parsed_fields ? 'log'
+                                 AND jsonb_array_length(parsed_fields->'log') > 0
+                            THEN (
+                                SELECT COALESCE(SUM((elem->>'question_count')::int), 0)
+                                FROM jsonb_array_elements(parsed_fields->'log') AS elem
+                            )
+                            WHEN topics IS NOT NULL AND topics != ''
+                            THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1
+                            ELSE 0
+                        END
+                    ), 0)
+                    FROM progress_logs
+                    WHERE user_id = %s
+                      AND message_type NOT IN ('plan', 'rest')
+                      {date_filter}
+                """, params)
                 row = cur.fetchone()
                 return int(row[0]) if row else 0
     return await _run_sync(_sync)

@@ -131,6 +131,7 @@ export interface UserDifficulty {
   easy: number;
   medium: number;
   hard: number;
+  expert?: number;
   unknown: number;
 }
 

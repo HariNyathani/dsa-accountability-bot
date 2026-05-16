@@ -118,7 +118,7 @@ async def generate_weekly_summary(
 
     # Optional AI analysis
     import config
-    if config.OPENAI_API_KEY and logs:
+    if config.GEMINI_API_KEY and logs:
         analysis = await analyse_progress(logs, streak, consistency)
         if analysis and send:
             from services.discord_service import send_dm
@@ -175,13 +175,53 @@ async def get_status_report(user_id: int) -> dict:
     }
 
 
+def _get_entry_topics(entry: dict) -> str | None:
+    """
+    Retrieve the topics string from a parsed_fields log entry,
+    checking keys in priority order so all platforms are handled.
+    """
+    # 1. Unified key (new logs)
+    val = entry.get("topics")
+    if val:
+        return val
+    # 2. LeetCode key (legacy)
+    val = entry.get("leetcode_topics")
+    if val:
+        return val
+    # 3. Any platform-prefixed key (codeforces_topics, codechef_topics, etc.)
+    for key in entry:
+        if key.endswith("_topics") and entry[key]:
+            return entry[key]
+    return None
+
+
+def _get_entry_difficulty(entry: dict) -> str | None:
+    """
+    Retrieve the difficulty string from a parsed_fields log entry,
+    checking keys in priority order so all platforms are handled.
+    """
+    # 1. Unified key (new logs)
+    val = entry.get("difficulty")
+    if val:
+        return val
+    # 2. LeetCode key (legacy)
+    val = entry.get("leetcode_difficulty")
+    if val:
+        return val
+    # 3. Any platform-prefixed key (codeforces_difficulty, etc.)
+    for key in entry:
+        if key.endswith("_difficulty") and not key.endswith("_difficulty_raw") and entry[key]:
+            return entry[key]
+    return None
+
+
 def _extract_exposure_topics(log: dict) -> list:
     """
     Extract DSA topic tags from a single progress log for chart/frequency analytics.
 
     Priority:
-      1. If parsed_fields contains 'log' entries with 'leetcode_topics', unpack
-         those comma-separated official tags (exposure-based counting).
+      1. If parsed_fields contains 'log' entries with topic data (any platform),
+         unpack those comma-separated official tags (exposure-based counting).
       2. Otherwise fall back to the legacy 'topics' column.
 
     This ensures charts show real DSA topics ("Array", "Hash Table") rather than
@@ -212,16 +252,16 @@ def _extract_exposure_topics(log: dict) -> list:
             pf = json.loads(pf_raw) if isinstance(pf_raw, str) else pf_raw
             log_entries = pf.get("log", [])
             for entry in log_entries:
-                lc_topics = entry.get("leetcode_topics")
-                if lc_topics:
+                entry_topics = _get_entry_topics(entry)
+                if entry_topics:
                     q_count = entry.get("question_count", 1)
-                    extracted_tags = [t.strip() for t in lc_topics.split(",") if t.strip()]
+                    extracted_tags = [t.strip() for t in entry_topics.split(",") if t.strip()]
                     normalized_tags = _normalize_and_dedup(extracted_tags)
                     topics.extend(normalized_tags * q_count)
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
 
-    # If we extracted LeetCode tags (which now includes manual tags), return directly
+    # If we extracted tags (any platform), return directly
     if topics:
         return topics
 
@@ -316,9 +356,9 @@ def _build_summary_embed(summary: dict) -> discord.Embed:
 
 
 async def get_difficulty_summary(user_id: int) -> dict:
-    """Get difficulty distribution (Easy, Medium, Hard, Unknown)."""
+    """Get difficulty distribution (Easy, Medium, Hard, Expert, Unknown)."""
     logs = await database.get_progress_logs(user_id)
-    counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Unknown": 0}
+    counts = {"Easy": 0, "Medium": 0, "Hard": 0, "Expert": 0, "Unknown": 0}
     for log in logs:
         if log.get("message_type") == "plan":
             continue
@@ -330,7 +370,7 @@ async def get_difficulty_summary(user_id: int) -> dict:
                 log_entries = pf.get("log", [])
                 for entry in log_entries:
                     q_count = entry.get("question_count", 1)
-                    diff = entry.get("leetcode_difficulty")
+                    diff = _get_entry_difficulty(entry)
                     if diff:
                         diff_title = diff.strip().title()
                         if diff_title in counts:

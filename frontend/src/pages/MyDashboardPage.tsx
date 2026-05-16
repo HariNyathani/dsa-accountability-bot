@@ -127,15 +127,15 @@ export default function MyDashboardPage() {
                     </div>
                   )}
                 </div>
-                <button 
+                <button
                   onClick={() => window.open(api.getExportUrl(uid), "_blank")}
                   className="dsa-btn"
-                  style={{ 
+                  style={{
                     marginTop: "6px",
-                    background: "rgba(99, 102, 241, 0.1)", 
-                    color: "#818cf8", 
-                    border: "1px solid rgba(99, 102, 241, 0.3)", 
-                    fontSize: "0.85rem", 
+                    background: "rgba(99, 102, 241, 0.1)",
+                    color: "#818cf8",
+                    border: "1px solid rgba(99, 102, 241, 0.3)",
+                    fontSize: "0.85rem",
                     padding: "8px 16px",
                     borderRadius: "8px",
                     fontWeight: 600,
@@ -229,33 +229,39 @@ export default function MyDashboardPage() {
           <div className="chart-container" style={{ marginBottom: 0 }}>
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="chart-title">🎯 Difficulty Distribution</div>
-              {aggregate.loading ? <SkeletonRows count={3} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0) ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}>
-                  {[
-                    { label: "Easy", count: d.easy, color: "#10b981", bg: "rgba(16, 185, 129, 0.1)" },
-                    { label: "Medium", count: d.medium, color: "#f59e0b", bg: "rgba(245, 158, 11, 0.1)" },
-                    { label: "Hard", count: d.hard, color: "#f43f5e", bg: "rgba(244, 63, 94, 0.1)" },
-                  ].map(item => {
-                    const total = d.easy + d.medium + d.hard;
-                    const pct = total > 0 ? (item.count / total) * 100 : 0;
-                    return (
-                      <div key={item.label}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
-                          <span style={{ color: "#94A3B8" }}>{item.label}</span>
-                          <span style={{ fontWeight: 600 }}>{item.count} <span style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+              {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
+                (() => {
+                  const expertCount = d.expert || 0;
+                  const total = d.easy + d.medium + d.hard + expertCount;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}>
+                      {[
+                        { label: "Easy", count: d.easy, color: "#10b981", bg: "rgba(16, 185, 129, 0.1)" },
+                        { label: "Medium", count: d.medium, color: "#f59e0b", bg: "rgba(245, 158, 11, 0.1)" },
+                        { label: "Hard", count: d.hard, color: "#f43f5e", bg: "rgba(244, 63, 94, 0.1)" },
+                        { label: "Expert (CF 2000+)", count: expertCount, color: "#9f1239", bg: "rgba(159, 18, 57, 0.1)" },
+                      ].map(item => {
+                        const pct = total > 0 ? (item.count / total) * 100 : 0;
+                        return (
+                          <div key={item.label}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "6px" }}>
+                              <span style={{ color: item.color, fontWeight: 500 }}>{item.label}</span>
+                              <span style={{ fontWeight: 600 }}>{item.count} <span style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 400 }}>({pct.toFixed(0)}%)</span></span>
+                            </div>
+                            <div style={{ width: "100%", height: "8px", background: "rgba(255, 255, 255, 0.05)", borderRadius: "4px", overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", background: item.color, borderRadius: "4px", transition: "width 0.5s ease" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {d.unknown > 0 && (
+                        <div style={{ textAlign: "right", marginTop: "4px" }}>
+                          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>+ {d.unknown} unknown</span>
                         </div>
-                        <div style={{ width: "100%", height: "8px", background: "rgba(255, 255, 255, 0.05)", borderRadius: "4px", overflow: "hidden" }}>
-                          <div style={{ width: `${pct}%`, height: "100%", background: item.color, borderRadius: "4px", transition: "width 0.5s ease" }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {d.unknown > 0 && (
-                    <div style={{ textAlign: "right", marginTop: "4px" }}>
-                      <span style={{ fontSize: "0.75rem", color: "#64748b" }}>+ {d.unknown} unknown</span>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()
               ) : (
                 <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see your distribution." />
               )}

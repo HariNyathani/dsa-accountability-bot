@@ -73,8 +73,4 @@ def parse_qdone(content: str) -> List[Tuple[str, int, Optional[str], str]]:
         
     return results
 
-def parse_plan_tomorrow(content: str) -> bool:
-    """Returns True if this is a !plan tomorrow command."""
-    lower = content.lower().strip()
-    return lower.startswith("!plan tomorrow") or lower.startswith("!plan") and "tomorrow" in lower
 

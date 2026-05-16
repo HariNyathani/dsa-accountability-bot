@@ -16,8 +16,6 @@ _model = None
 
 def _extract_text(response) -> Optional[str]:
     """Safely extract text from a Gemini response, with fallback paths."""
-    print("GEMINI RAW RESPONSE:", response)
-
     try:
         text = response.text
         if text and text.strip():

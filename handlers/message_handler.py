@@ -12,7 +12,7 @@ from db import database
 from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics, topics_to_str
 from utils.streak_utils import on_post
-from utils.command_parser import parse_qdone, parse_plan_tomorrow
+from utils.command_parser import parse_qdone
 import json
 import config
 
@@ -44,16 +44,16 @@ async def handle_message(message: discord.Message, bot: discord.Client):
             if message.mentions:
                 target_user = message.mentions[0]
                 await database.delete_user_progress(target_user.id)
-                await message.reply(f"⚠️ All data for {target_user.name} has been eradicated from the database.")
+                await message.reply(f"⚠️ All data for {target_user.name} has been eradicated from the database.", delete_after=3600)
             return
         elif lower_content.startswith("!qundo"):
             if message.mentions:
                 target_user = message.mentions[0]
                 success = await database.undo_last_entry(target_user.id)
                 if success:
-                    await message.reply(f"✅ Reverted the latest entry for {target_user.name}.")
+                    await message.reply(f"✅ Reverted the latest entry for {target_user.name}.", delete_after=3600)
                 else:
-                    await message.reply(f"❌ No entries found for {target_user.name}.")
+                    await message.reply(f"❌ No entries found for {target_user.name}.", delete_after=3600)
             return
 
     # Look up whether this user is registered AND tracking this channel
@@ -113,7 +113,7 @@ async def handle_message(message: discord.Message, bot: discord.Client):
     feedback_msg = None
     try:
         import re
-        has_url = bool(re.search(r'leetcode\.com/problems/', content.lower()))
+        has_url = bool(re.search(r'(?:leetcode\.com/problems/|codeforces\.com/(?:contest/\d+/problem/|problemset/problem/\d+/))', content.lower()))
         if content.lower().startswith("!qdone") or content.lower().startswith("!qn") or content.lower().startswith("!log") or has_url:
             await message.add_reaction("✅")
             
@@ -137,39 +137,16 @@ async def handle_message(message: discord.Message, bot: discord.Client):
                 feedback_msg = "\n".join(lines)
             else:
                 feedback_msg = "⚠️ Couldn't parse topics and counts. Use format: `!qdone arrays 5 recursion 2`"
-        elif msg_type == "plan":
-            await message.add_reaction("📋")
-            feedback_msg = "📋 Plan logged for tomorrow."
+
         elif msg_type == "rest":
             await message.add_reaction("🛌")
             feedback_msg = service_feedback
         elif msg_type == "done":
             await message.add_reaction("✅")
             
-            # If LeetCode match found, show the enhanced feedback
-            if leetcode_matches and service_feedback:
+            # Show enhanced feedback from service
+            if service_feedback and service_feedback != "Progress logged.":
                 feedback_msg = service_feedback
-            else:
-                # Check for early completion of tomorrow's plan
-                today_logs = await database.get_progress_logs(message.author.id, today, today)
-                completed_early = []
-                for t in topics:
-                    for log in today_logs:
-                        if log.get("parsed_fields"):
-                            try:
-                                pf = json.loads(log["parsed_fields"])
-                                if pf.get("target_date") != today and pf.get("intent_type") == "plan":
-                                    # planned for future
-                                    for item in pf.get("log", []):
-                                        if item.get("canonical_topic") == t:
-                                            completed_early.append(t)
-                            except:
-                                pass
-                if completed_early:
-                    unique_early = list(set(completed_early))
-                    feedback_msg = f"Nice, you completed tomorrow's planned task early: {', '.join(unique_early)}!"
-                elif service_feedback and service_feedback != "Progress logged.":
-                    feedback_msg = service_feedback
         else:
             # Free-text progress — reply with confirmation and react with fire
             if service_feedback and service_feedback != "Progress logged.":

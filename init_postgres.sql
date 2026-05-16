@@ -72,3 +72,19 @@ CREATE TABLE IF NOT EXISTS leetcode_problems (
     difficulty    TEXT,
     topics        JSONB
 );
+
+-- ── Multi-Platform Support ──────────────────────────────────────────────────
+
+-- Add platform column to progress_logs (backward-compatible)
+ALTER TABLE progress_logs ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'leetcode';
+CREATE INDEX IF NOT EXISTS idx_progress_logs_platform ON progress_logs(platform);
+
+-- Codeforces problem dataset
+CREATE TABLE IF NOT EXISTS codeforces_problems (
+    contest_id    INTEGER NOT NULL,
+    problem_index TEXT NOT NULL,
+    title         TEXT,
+    rating        INTEGER,
+    tags          JSONB,
+    PRIMARY KEY (contest_id, problem_index)
+);

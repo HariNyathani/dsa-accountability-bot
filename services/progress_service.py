@@ -5,8 +5,9 @@ from db import database
 from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics
 from utils.streak_utils import on_post
-from utils.command_parser import parse_qdone, parse_plan_tomorrow
-from utils.matcher import fuzzy_match_problem
+from utils.command_parser import parse_qdone
+from utils.resolvers import resolve_problem, fuzzy_match_problem
+from utils.resolvers.detector import detect_platform
 
 logger = logging.getLogger("dsa_bot.progress_service")
 
@@ -162,6 +163,44 @@ async def _try_leetcode_fallback(content: str) -> list[dict]:
     return matches
 
 
+# ── Helpers: convert ResolvedProblem → legacy dict shapes ───────────────────
+
+def _resolved_to_match_dict(resolved) -> dict:
+    """Convert a ResolvedProblem dataclass into the dict shape used by
+    leetcode_matches[] and the feedback builder."""
+    return {
+        "original": resolved.title,
+        "matched_title": resolved.title,
+        "difficulty": resolved.difficulty_norm,
+        "official_topics": resolved.topics_str,
+        "score": resolved.score,
+        "question_count": 1,
+        "platform": resolved.platform,
+    }
+
+
+def _resolved_to_log_entry(resolved, count: int = 1) -> dict:
+    """Convert a ResolvedProblem into a log-entry dict for parsed_fields."""
+    return {
+        "canonical_topic": resolved.title,
+        "normalized_topic": resolved.title,
+        "question_count": count,
+        "leetcode_title": resolved.title,
+        "leetcode_topics": resolved.topics_str,
+        "leetcode_difficulty": resolved.difficulty_norm,
+        "platform": resolved.platform,
+    }
+
+
+# ── URL regexes (platform-agnostic) ────────────────────────────────────────
+
+_PROBLEM_URL_RE = re.compile(
+    r'(?:leetcode\.com/problems/([^/>\s]+)'
+    r'|codeforces\.com/(?:contest/(\d+)/problem/([A-Za-z]\d?)|problemset/problem/(\d+)/([A-Za-z]\d?)))',
+    re.IGNORECASE,
+)
+
+
 # ── Main Entry Point ────────────────────────────────────────────────────────
 
 async def process_progress_submission(
@@ -197,7 +236,8 @@ async def process_progress_submission(
         "intent_type": msg_type,
         "target_date": today,
         "log": [],
-        "source": source
+        "source": source,
+        "platform": "leetcode",  # default; overridden by platform-aware callers
     }
     
     topics = []
@@ -227,49 +267,47 @@ async def process_progress_submission(
         })
         topics.append("Rest")
 
-    url_match = re.search(r'leetcode\.com/problems/([^/>\s]+)', content_lower)
+    # ── Platform-agnostic URL / !log handling ────────────────────────────
+    url_match = _PROBLEM_URL_RE.search(content)
     is_log_command = content_lower.startswith("!log ")
-    
+
     if msg_type != "rest" and (is_log_command or url_match):
         logger.info(f"[GATE:URL_OR_LOG] user={user_id} is_log={is_log_command} has_url={bool(url_match)}")
+
         if url_match:
-            target = url_match.group(1)
+            # Use the full URL as the identifier — resolve_problem + detector
+            # will extract the right platform from it.
+            target = url_match.group(0)
             original_display = url_match.group(0)
         else:
-            target = content_lower.replace("!log ", "", 1).strip()
+            target = content[5:].strip()  # strip "!log "
             original_display = target
-            
-        match = await fuzzy_match_problem(target)
-        if not match:
+
+        # Use the unified resolver (auto-detects platform)
+        resolved = await resolve_problem(target)
+
+        if not resolved:
             if is_log_command:
                 return {
                     "status": "error",
-                    "feedback_message": "❌ Invalid LeetCode URL or problem not found."
+                    "feedback_message": "❌ Invalid ID/URL or problem not found."
                 }
             else:
                 return {
                     "status": "skipped"
                 }
-            
+
         msg_type = "done"
         parsed_fields_dict["intent_type"] = "done"
-        leetcode_matches.append({
-            "original": original_display,
-            "matched_title": match["title"],
-            "difficulty": match["difficulty"],
-            "official_topics": match["topics_str"],
-            "score": match["score"],
-            "question_count": 1,
-        })
-        parsed_fields_dict["log"].append({
-            "canonical_topic": match["title"],
-            "normalized_topic": match["title"],
-            "question_count": 1,
-            "leetcode_title": match["title"],
-            "leetcode_topics": match["topics_str"],
-            "leetcode_difficulty": match["difficulty"],
-        })
-        topics.append(match["title"])
+        parsed_fields_dict["platform"] = resolved.platform
+
+        match_dict = _resolved_to_match_dict(resolved)
+        match_dict["original"] = original_display
+        match_dict["question_count"] = 1
+        leetcode_matches.append(match_dict)
+
+        parsed_fields_dict["log"].append(_resolved_to_log_entry(resolved))
+        topics.append(resolved.title)
         
     elif web_topics is not None or content_lower.startswith("!qdone") or content_lower.startswith("!qn"):
         logger.info(f"[GATE:QDONE_QN] user={user_id} web_topics={web_topics is not None}")
@@ -290,35 +328,46 @@ async def process_progress_submission(
             
         for canonical, count, diff in qdone_results:
             if is_qn:
-                match = await fuzzy_match_problem(f"#{canonical}")
+                # Use platform-agnostic resolve_problem instead of
+                # LeetCode-only fuzzy_match_problem.
+                # detect_platform will route "2211B" → codeforces,
+                # "#1" or "1" → leetcode (via fallback).
+                identifier = canonical
+                # If the identifier is purely numeric, prepend '#' so the
+                # LeetCode resolver treats it as an ID lookup (preserves
+                # backward compat with existing `!qn 1` behaviour).
+                if identifier.isdigit():
+                    identifier = f"#{identifier}"
+
+                resolved = await resolve_problem(identifier)
+                match = None
+                if resolved:
+                    match = _resolved_to_match_dict(resolved)
+                    match["original"] = canonical
+                    match["question_count"] = count
+                    parsed_fields_dict["platform"] = resolved.platform
             else:
                 match = None
-                
+                resolved = None
+
             if is_qn and not match:
                 return {
                     "status": "error",
-                    "feedback_message": f"❌ Question ID {canonical} not found in our database. Try logging with the URL instead."
+                    "feedback_message": f"❌ Problem '{canonical}' not found. Check the ID/URL and try again."
                 }
-                
-            if match:
-                final_diff = match.get("difficulty", diff)
-                leetcode_matches.append({
-                    "original": canonical,
-                    "matched_title": match["title"],
-                    "difficulty": final_diff,
-                    "official_topics": match["topics_str"],
-                    "score": match["score"],
-                    "question_count": count,
-                })
-                parsed_fields_dict["log"].append({
-                    "canonical_topic": canonical,
-                    "normalized_topic": canonical,
-                    "question_count": count,
-                    "leetcode_title": match["title"],
-                    "leetcode_topics": match["topics_str"],
-                    "leetcode_difficulty": final_diff,
-                })
-                topics.extend([canonical] * count)
+
+            if match and resolved:
+                final_diff = resolved.difficulty_norm or diff
+                match["difficulty"] = final_diff
+                leetcode_matches.append(match)
+                log_entry = _resolved_to_log_entry(resolved, count)
+                log_entry["leetcode_difficulty"] = final_diff
+                parsed_fields_dict["log"].append(log_entry)
+                # Use resolved.title (e.g. "Watermelon") instead of raw
+                # canonical (e.g. "4A") so topics_str saved to DB matches
+                # the canonical_topic in parsed_fields — this is what the
+                # message_handler's "Total:" counter looks up against.
+                topics.extend([resolved.title] * count)
             else:
                 from utils.command_parser import get_canonical_topic
                 if not get_canonical_topic(canonical):
@@ -460,22 +509,11 @@ async def process_progress_submission(
             else:
                 logger.info(f"[GATE:LC_FALLBACK_MISS] user={user_id} No LeetCode match found either")
 
-        # Handle plan-tomorrow detection (applies regardless of topic extraction)
-        is_plan_tomorrow = parse_plan_tomorrow(content)
-        if is_plan_tomorrow:
-            from utils.time_utils import parse_date
-            from datetime import timedelta
-            try:
-                tomorrow_date = (parse_date(today) + timedelta(days=1)).strftime("%Y-%m-%d")
-                parsed_fields_dict["target_date"] = tomorrow_date
-            except Exception:
-                pass
-            parsed_fields_dict["intent_type"] = "plan"
-            msg_type = "plan"
 
-    # Silence the Noise: Abort if nothing was extracted and it's not a plan
-    if msg_type != "plan" and not topics:
-        logger.info(f"[GATE:SKIP] user={user_id} No topics found and not a plan — skipping")
+
+    # Silence the Noise: Abort if nothing was extracted
+    if not topics:
+        logger.info(f"[GATE:SKIP] user={user_id} No topics found — skipping")
         return {
             "status": "skipped"
         }
@@ -486,21 +524,22 @@ async def process_progress_submission(
     # Rate Limits
     new_quantity = sum(item.get("question_count", 0) for item in parsed_fields_dict.get("log", []))
     
-    if new_quantity > 10:
+    if new_quantity > 200:
         return {
             "status": "error",
-            "feedback_message": "❌ Limit exceeded. You can only log up to 10 questions per command to keep data realistic."
+            "feedback_message": "❌ Limit exceeded. You can only log up to 200 questions per command to keep data realistic."
         }
         
-    if msg_type != "plan" and new_quantity > 0:
+    if new_quantity > 0:
         current_sum = await database.get_daily_question_count(user_id, today)
-        if (current_sum + new_quantity) > 25:
+        if (current_sum + new_quantity) > 200:
             return {
                 "status": "error",
-                "feedback_message": "❌ Daily limit reached (25/day). Quality over quantity, legend! See you tomorrow."
+                "feedback_message": "❌ Daily limit reached (200/day). Quality over quantity, legend! See you tomorrow."
             }
 
     # Save progress log
+    log_platform = parsed_fields_dict.get("platform", "leetcode")
     await database.save_progress_log(
         user_id=user_id,
         channel_id=channel_id,
@@ -510,17 +549,14 @@ async def process_progress_submission(
         log_date=today,
         message_type=msg_type,
         parsed_fields=parsed_fields_json,
+        platform=log_platform,
     )
 
     # Mark today as posted
-    if msg_type != "plan":
-        await database.mark_posted(user_id, today)
+    await database.mark_posted(user_id, today)
 
     # Update streak
-    if msg_type != "plan":
-        streak = await on_post(user_id, today)
-    else:
-        streak = await database.get_streak(user_id)
+    streak = await on_post(user_id, today)
 
     logger.info(
         f"Progress logged: user={user_id}, source={source}, type={msg_type}, "
@@ -549,8 +585,8 @@ async def process_progress_submission(
 def _build_feedback(topics: list, leetcode_matches: list, msg_type: str) -> str:
     """
     Build a human-friendly feedback string.
-    If LeetCode matches were found, include the canonical title and auto-tagged topics.
-    Append any non-LeetCode manual topics.
+    If LeetCode/Codeforces matches were found, include the canonical title and auto-tagged topics.
+    Append any non-matched manual topics.
     """
     if not topics and not leetcode_matches:
         return "Progress logged."
@@ -561,6 +597,7 @@ def _build_feedback(topics: list, leetcode_matches: list, msg_type: str) -> str:
     # Process LeetCode-enhanced feedback
     for m in leetcode_matches:
         matched_originals.add(m.get("original"))
+        matched_originals.add(m.get("matched_title"))
         count = m.get("question_count", 1)
         title = m["matched_title"]
         difficulty = m.get("difficulty", "")
@@ -596,19 +633,14 @@ def _build_feedback(topics: list, leetcode_matches: list, msg_type: str) -> str:
 
 
 def _classify_message(content: str) -> str:
-    """Classify a message as 'plan', 'done', or 'progress'."""
+    """Classify a message as 'done', 'rest', or 'progress'."""
     lower = content.lower()
-    if lower.startswith("!plan"):
-        return "plan"
     if lower.startswith("!rest") or lower.startswith("!cheatday"):
         return "rest"
     if lower.startswith("!done"):
         return "done"
     # Auto-detect
-    plan_keywords = ["plan:", "planning to", "will study", "going to study", "today's plan"]
     done_keywords = ["done:", "completed", "finished", "solved", "practiced"]
-    if any(kw in lower for kw in plan_keywords):
-        return "plan"
     if any(kw in lower for kw in done_keywords):
         return "done"
     return "progress"

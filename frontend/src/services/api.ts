@@ -108,5 +108,8 @@ export const api = {
   logRestDay: () =>
     request<APIResponse<any>>("/progress/rest", { method: "POST", body: JSON.stringify({}) }),
 
+  logPlatformProblem: (data: { platform: string; problem_identifier: string }) =>
+    request<APIResponse<any>>("/progress/platform", { method: "POST", body: JSON.stringify(data) }),
+
   getExportUrl: (userId: string) => `${BASE}/users/${userId}/export`,
 };

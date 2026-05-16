@@ -103,6 +103,7 @@ class UserDifficulty(BaseModel):
     easy: int
     medium: int
     hard: int
+    expert: int = 0
     unknown: int
 
 
