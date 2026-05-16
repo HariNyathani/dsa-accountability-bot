@@ -59,7 +59,7 @@ export default function Layout() {
 
         <div className="sidebar-footer">
           <div className="footer-text">
-            DSA Accountability Bot v2.0<br />
+            DSA Accountability Bot V2.5<br />
             Discord + API + Dashboard
           </div>
           <div className="creator-signature">

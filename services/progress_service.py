@@ -524,18 +524,18 @@ async def process_progress_submission(
     # Rate Limits
     new_quantity = sum(item.get("question_count", 0) for item in parsed_fields_dict.get("log", []))
     
-    if new_quantity > 200:
+    if new_quantity > 25:
         return {
             "status": "error",
-            "feedback_message": "❌ Limit exceeded. You can only log up to 200 questions per command to keep data realistic."
+            "feedback_message": "❌ Limit exceeded. You can only log up to 25 questions per command to keep data realistic."
         }
         
     if new_quantity > 0:
         current_sum = await database.get_daily_question_count(user_id, today)
-        if (current_sum + new_quantity) > 200:
+        if (current_sum + new_quantity) > 25:
             return {
                 "status": "error",
-                "feedback_message": "❌ Daily limit reached (200/day). Quality over quantity, legend! See you tomorrow."
+                "feedback_message": "❌ Daily limit reached (25/day). Quality over quantity, legend! See you tomorrow."
             }
 
     # Save progress log
