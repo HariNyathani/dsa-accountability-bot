@@ -457,63 +457,97 @@ async def process_progress_submission(
                 msg_type = "done"
                 parsed_fields_dict["intent_type"] = "done"
 
-        # ── STAGE 2: Standard keyword extraction (only if no bullets) ───
+        # ── STAGE 2: Line-by-line Fuzzy-First pipeline ──────────────────
+        # For each line: try the LeetCode fuzzy matcher FIRST.
+        # Only fall back to keyword extraction if the fuzzy matcher finds
+        # nothing for that specific line.  This prevents generic keywords
+        # that appear as substrings inside a problem title (e.g. "tree"
+        # inside "Binary Tree Zigzag Level Order Traversal") from
+        # intercepting specific LeetCode problems.
         if not bullet_groups:
-            extracted = extract_topics(content)
+            logger.info(f"[GATE:LINE_ITER] user={user_id} Starting line-by-line fuzzy-first pipeline")
+            seen_lc_titles: set[str] = set()
 
-            for canon, count in extracted:
-                parsed_fields_dict["log"].append({
-                    "canonical_topic": canon,
-                    "normalized_topic": canon,
-                    "question_count": count,
-                    "leetcode_topics": canon
-                })
-                topics.extend([canon] * count)
+            for raw_line in content.strip().splitlines():
+                line = _strip_action_verbs(raw_line).strip()
+                # Drop bare URLs — already handled upstream
+                line = re.sub(r'https?://\S+', '', line).strip()
+                if len(line) < 3:
+                    continue
 
-            if extracted:
-                logger.info(f"[GATE:KEYWORD_HIT] user={user_id} Keyword extraction found: {extracted}")
+                # ── Priority 1: LeetCode fuzzy match ────────────────────
+                lc_line_matches = await _try_leetcode_fallback(line)
+                if lc_line_matches:
+                    for match in lc_line_matches:
+                        if match["title"] in seen_lc_titles:
+                            continue
+                        seen_lc_titles.add(match["title"])
+                        logger.info(
+                            f"[GATE:LINE_LC_HIT] '{line}' → "
+                            f"'{match['title']}' (score={match['score']:.1f})"
+                        )
+                        # IMPORTANT: "original" MUST equal match["title"] so
+                        # _build_feedback can de-duplicate against topics[].
+                        leetcode_matches.append({
+                            "original": match["title"],
+                            "matched_title": match["title"],
+                            "difficulty": match["difficulty"],
+                            "official_topics": match["topics_str"],
+                            "score": match["score"],
+                            "question_count": 1,
+                        })
+                        parsed_fields_dict["log"].append({
+                            "canonical_topic": match["title"],
+                            "normalized_topic": match["title"],
+                            "question_count": 1,
+                            "leetcode_title": match["title"],
+                            "leetcode_topics": match["topics_str"],
+                            "leetcode_difficulty": match["difficulty"],
+                        })
+                        topics.append(match["title"])
 
-        # ── STAGE 3: LeetCode fallback for unrecognized free-text ───────
-        # If we STILL have nothing, try to fuzzy-match the whole message
-        # (or individual lines) against the LeetCode problem database.
-        if not topics:
-            logger.info(f"[GATE:LC_FALLBACK_START] user={user_id} No keywords/bullets found, trying LeetCode DB fallback")
-            lc_fallback_matches = await _try_leetcode_fallback(content)
+                else:
+                    # ── Priority 2: Keyword extraction on this line only ─
+                    line_topics = extract_topics(line)
+                    if line_topics:
+                        logger.info(
+                            f"[GATE:LINE_KEYWORD_HIT] '{line}' → keywords: {line_topics}"
+                        )
+                        for canon, count in line_topics:
+                            parsed_fields_dict["log"].append({
+                                "canonical_topic": canon,
+                                "normalized_topic": canon,
+                                "question_count": count,
+                                "leetcode_topics": canon,
+                            })
+                            topics.extend([canon] * count)
+                    else:
+                        logger.info(f"[GATE:LINE_MISS] No match for line: '{line}'")
 
-            if lc_fallback_matches:
-                for match in lc_fallback_matches:
-                    # IMPORTANT: "original" MUST equal match["title"] because
-                    # topics[] also stores match["title"].  _build_feedback
-                    # uses "original" to de-duplicate against topics[]; if
-                    # they don't match, the same problem appears twice.
-                    leetcode_matches.append({
-                        "original": match["title"],
-                        "matched_title": match["title"],
-                        "difficulty": match["difficulty"],
-                        "official_topics": match["topics_str"],
-                        "score": match["score"],
-                        "question_count": 1,
-                    })
-                    parsed_fields_dict["log"].append({
-                        "canonical_topic": match["title"],
-                        "normalized_topic": match["title"],
-                        "question_count": 1,
-                        "leetcode_title": match["title"],
-                        "leetcode_topics": match["topics_str"],
-                        "leetcode_difficulty": match["difficulty"],
-                    })
-                    topics.append(match["title"])
+            # Use parsed_fields_dict["log"] as the authoritative signal:
+            # topics[] mirrors it for backward compat, but LC matches that
+            # skip the topics list (e.g. future refactors) must still trigger
+            # "done".  Checking the log directly is the safe invariant.
+            if topics or parsed_fields_dict["log"]:
                 msg_type = "done"
                 parsed_fields_dict["intent_type"] = "done"
-                logger.info(f"[GATE:LC_FALLBACK_HIT] user={user_id} Fallback matched {len(lc_fallback_matches)} problem(s)")
+                logger.info(
+                    f"[GATE:LINE_ITER_HIT] user={user_id} "
+                    f"Pipeline resolved {len(parsed_fields_dict['log'])} log entry/entries"
+                )
             else:
-                logger.info(f"[GATE:LC_FALLBACK_MISS] user={user_id} No LeetCode match found either")
+                logger.info(
+                    f"[GATE:LINE_ITER_MISS] user={user_id} "
+                    f"Line-by-line pipeline found nothing"
+                )
 
 
 
-    # Silence the Noise: Abort if nothing was extracted
-    if not topics:
-        logger.info(f"[GATE:SKIP] user={user_id} No topics found — skipping")
+    # Silence the Noise: Abort if nothing was extracted.
+    # Guard on the log, not just topics[], so LC-only sessions
+    # (which populate parsed_fields_dict["log"] directly) are never silently dropped.
+    if not topics and not parsed_fields_dict["log"]:
+        logger.info(f"[GATE:SKIP] user={user_id} No topics or log entries found — skipping")
         return {
             "status": "skipped"
         }
