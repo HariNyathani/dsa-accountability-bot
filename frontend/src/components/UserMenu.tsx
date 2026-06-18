@@ -6,10 +6,11 @@
    ────────────────────────────────────────────────────────────────────────── */
 
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function UserMenu() {
-  const { user, authenticated, loading, login, logout } = useAuth();
+  const { user, authenticated, loading, login, logout, isAdmin } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -85,22 +86,37 @@ export default function UserMenu() {
 
       {menuOpen && (
         <div className="user-dropdown">
-          <a
-            href={`/users/${user.id}`}
+          <Link
+            to={`/u/${user?.profile_handle ?? user?.id}`}
             className="user-dropdown-item"
             onClick={() => setMenuOpen(false)}
           >
             <span className="dropdown-icon">👤</span>
             My Profile
-          </a>
-          <a
-            href="/me"
+          </Link>
+          <Link
+            to="/me"
             className="user-dropdown-item"
             onClick={() => setMenuOpen(false)}
           >
             <span className="dropdown-icon">📊</span>
             My Dashboard
-          </a>
+          </Link>
+          {isAdmin && (
+            <>
+              <div className="user-dropdown-divider" />
+              <Link
+                to="/admin"
+                className="user-dropdown-item"
+                onClick={() => setMenuOpen(false)}
+                id="admin-panel-link"
+                style={{ color: "#f59e0b" }}
+              >
+                <span className="dropdown-icon">⚙️</span>
+                Admin Control Panel
+              </Link>
+            </>
+          )}
           <div className="user-dropdown-divider" />
           <button
             className="user-dropdown-item logout"

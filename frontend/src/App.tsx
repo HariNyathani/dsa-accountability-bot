@@ -1,13 +1,15 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import Layout from "./components/Layout";
+import AdminRoute from "./components/AdminRoute";
 import DashboardPage from "./pages/DashboardPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
-import UsersPage from "./pages/UsersPage";
+
 import UserProfilePage from "./pages/UserProfilePage";
 import StatusPage from "./pages/StatusPage";
 import MyDashboardPage from "./pages/MyDashboardPage";
+import AdminPage from "./pages/AdminPage";
 
 export default function App() {
   return (
@@ -18,10 +20,16 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="users" element={<UsersPage />} />
             <Route path="users/:userId" element={<UserProfilePage />} />
+            <Route path="u/:identifier" element={<UserProfilePage />} />
+
             <Route path="status" element={<StatusPage />} />
             <Route path="me" element={<MyDashboardPage />} />
+
+            {/* Admin — guarded by AdminRoute (403 wall for non-admin) */}
+            <Route element={<AdminRoute />}>
+              <Route path="admin" element={<AdminPage />} />
+            </Route>
           </Route>
         </Routes>
       </BrowserRouter>

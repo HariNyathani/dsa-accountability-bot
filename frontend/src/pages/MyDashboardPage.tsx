@@ -172,6 +172,7 @@ export default function MyDashboardPage() {
       {/* Heatmap (Full Width Row) */}
       <Heatmap
         data={heatmap.data?.dates || {}}
+        restDates={new Set(heatmap.data?.rest_dates || [])}
         activeDays={heatmap.data?.active_days || 0}
         currentStreak={heatmap.data?.current_streak || 0}
         maxStreak={heatmap.data?.max_streak || 0}

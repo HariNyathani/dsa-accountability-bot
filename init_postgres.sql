@@ -88,3 +88,12 @@ CREATE TABLE IF NOT EXISTS codeforces_problems (
     tags          JSONB,
     PRIMARY KEY (contest_id, problem_index)
 );
+
+-- ── Vanity Usernames (V4.0) ─────────────────────────────────────────────────
+
+-- Nullable so existing users aren't affected.  Unique partial index allows
+-- multiple NULLs (users who haven't claimed a handle yet) while preventing
+-- duplicate non-null usernames.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
+    ON users(username) WHERE username IS NOT NULL;

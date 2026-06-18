@@ -32,6 +32,7 @@ from handlers.summary_handler import (
 from handlers.leaderboard_handler import build_leaderboard, get_missed_today_report
 from services.export_service import export_progress_csv, export_daily_status_csv
 from services.ai_service import generate_insights
+from services.progress_service import process_progress_submission
 from utils.time_utils import today_str
 from utils.streak_utils import recalculate_streak
 
@@ -499,12 +500,25 @@ async def cmd_resetconfig(ctx: commands.Context):
 
 
 @bot.command(name="status")
-async def cmd_status(ctx: commands.Context):
-    """Show your current tracking status."""
-    if not await _require_registered(ctx):
+async def cmd_status(ctx: commands.Context, *, mention: str = ""):
+    """Show your current tracking status. Usage: !status [@user]"""
+    target_id, _, err = await _resolve_target_user(ctx, mention.split() if mention else [])
+    if err:
+        await ctx.send(err)
         return
-    report = await get_status_report(ctx.author.id)
-    embed = discord.Embed(title="📊 Your DSA Status", color=0x3498DB)
+
+    if not await database.is_registered(target_id):
+        if target_id == ctx.author.id:
+            await ctx.send("❌ You're not registered yet! Run `!register` first.")
+        else:
+            await ctx.send("❌ That user isn't registered on the platform yet!")
+        return
+
+    report = await get_status_report(target_id)
+
+    is_self = target_id == ctx.author.id
+    title = "📊 Your DSA Status" if is_self else f"📊 Status for <@{target_id}>"
+    embed = discord.Embed(title=title, color=0x3498DB)
     embed.add_field(
         name="📅 Today",
         value=f"{'✅ Posted' if report['posted_today'] else '❌ Not posted yet'}\nDate: {report['today']}",
@@ -754,6 +768,74 @@ async def cmd_admin(ctx: commands.Context, action: str = "", *, args: str = ""):
         await ctx.send("Usage: `!admin users` | `!admin missed` | `!admin forcesummary`")
 
 
+@bot.command(name="sudo_log")
+async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
+    """Admin God Mode: Log progress on behalf of another user.
+    Usage: !sudo_log @user <rest|qdone ...|free text>"""
+    if not _is_admin(ctx):
+        await ctx.send("❌ Admin only.")
+        return
+
+    parts = args.split(None, 1)
+    if len(parts) < 2:
+        await ctx.send(
+            "❌ Usage: `!sudo_log @user <rest|qdone ...|text>`\n"
+            "Examples:\n"
+            "• `!sudo_log @user rest`\n"
+            "• `!sudo_log @user qdone arrays 3 hard`\n"
+            "• `!sudo_log @user solved two sum`"
+        )
+        return
+
+    mention_str, rest = parts
+    target_id = _parse_user_mention(mention_str)
+    if not target_id:
+        await ctx.send("❌ Could not parse user mention. Use `!sudo_log @user <subcommand>`.")
+        return
+
+    # Ensure target user is registered
+    if not await database.is_registered(target_id):
+        await ctx.send(f"❌ <@{target_id}> is not registered. Use `!register @user` first.")
+        return
+
+    # ── Subcommand reconstruction ────────────────────────────────────
+    rest_stripped = rest.strip()
+    rest_lower = rest_stripped.lower()
+
+    if rest_lower == "rest":
+        content = "!rest"
+    elif rest_lower.startswith("qdone"):
+        content = "!" + rest_stripped
+    else:
+        # Raw text → triggers the NLP/free-text pipeline
+        content = rest_stripped
+
+    # ── Call the service with audit trail ─────────────────────────────
+    try:
+        result = await process_progress_submission(
+            user_id=target_id,
+            content=content,
+            source="discord",
+            channel_id=ctx.channel.id,
+            acting_user_id=ctx.author.id,
+        )
+    except Exception as e:
+        logger.error(f"sudo_log error: {e}", exc_info=True)
+        await ctx.send(f"❌ Internal error while processing override: {e}")
+        return
+
+    status = result.get("status")
+    if status == "error":
+        await ctx.send(f"❌ **Admin Override Failed**: {result.get('feedback_message', 'Unknown error')}")
+        return
+    if status == "skipped":
+        await ctx.send("⚠️ **Admin Override**: Nothing was extracted from the input. Check the subcommand.")
+        return
+
+    feedback = result.get("feedback_message", "Progress logged.")
+    await ctx.send(f"✅ **Admin Override**: Logged for <@{target_id}>: {feedback}")
+
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 @bot.command(name="help")
@@ -817,7 +899,7 @@ async def cmd_help(ctx: commands.Context, command_name: str = ""):
         "**!qdone** `<topic> [count] [diff]` — Log topics (e.g., arrays 2 hard)\n"
         "**!qn** `<id>` — Log by LeetCode ID (e.g., 73)\n"
         "**!log** `<url>` — Log by URL (LeetCode/Codeforces)\n"
-        "**!status** — Today's status\n"
+        "**!status** `[@user]` — View your or another user's progress\n"
         "**!streak** — Streak info\n"
         "**!weekly** — Weekly summary\n"
         "**!topics** — Topic analysis\n"
@@ -836,7 +918,8 @@ async def cmd_help(ctx: commands.Context, command_name: str = ""):
             "`!register @user` · `!setchannel #ch @user`\n"
             "`!setemail email @user` · `!setdeadline HH:MM @user`\n"
             "`!setreminders ... @user` · `!mysettings @user`\n"
-            "`!admin users` · `!admin missed` · `!admin forcesummary`"
+            "`!admin users` · `!admin missed` · `!admin forcesummary`\n"
+            "`!sudo_log @user <rest|qdone|text>` — Log progress for another user"
         )
         if config.BOT_OWNER_ID and ctx.author.id == config.BOT_OWNER_ID:
             admin_text += "\n\n**Owner Suite:**\n`!qpurge @user` — Delete all user progress\n`!qundo @user` — Delete latest entry"

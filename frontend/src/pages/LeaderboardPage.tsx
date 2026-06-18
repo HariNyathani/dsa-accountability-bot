@@ -71,7 +71,7 @@ export default function LeaderboardPage() {
               </thead>
               <tbody>
                 {data.entries.map((e) => (
-                  <tr key={e.user_id} style={{ cursor: "pointer" }} onClick={() => nav(`/users/${e.user_id}`)}>
+                  <tr key={e.user_id} style={{ cursor: "pointer" }} onClick={() => nav(`/u/${e.username || e.user_id}`)}>
                     <td>
                       {e.rank <= 3
                         ? <span className="rank-medal">{MEDALS[e.rank - 1]}</span>

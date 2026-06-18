@@ -26,7 +26,9 @@ async def build_leaderboard(sort_by: str = "streak") -> discord.Embed:
     Build a leaderboard embed.
     sort_by: 'streak' | 'longest' | 'consistency' | 'posts' | 'days'
     """
-    data = await database.get_leaderboard_data()
+    result = await database.get_leaderboard_data()
+    total_registered = result["total_registered_users"]
+    data = result["rankings"]
 
     if not data:
         embed = discord.Embed(
@@ -73,10 +75,9 @@ async def build_leaderboard(sort_by: str = "streak") -> discord.Embed:
     )
 
     # Footer with total stats
-    total_users = len(data)
-    active_today = sum(1 for d in data if d["current_streak"] > 0)
+    active_streaks = len(data)
     embed.set_footer(
-        text=f"👥 {total_users} users tracked | 🔥 {active_today} active streaks | DSA Accountability Bot"
+        text=f"👥 {total_registered} users tracked | 🔥 {active_streaks} active streaks | DSA Accountability Bot"
     )
 
     return embed

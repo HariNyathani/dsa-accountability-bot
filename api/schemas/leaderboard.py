@@ -11,6 +11,7 @@ class LeaderboardEntry(BaseModel):
     rank: int
     user_id: str
     discord_username: Optional[str] = None
+    username: Optional[str] = None
     current_streak: int = 0
     longest_streak: int = 0
     consistency_pct: float = 0.0

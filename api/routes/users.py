@@ -1,15 +1,18 @@
 """
 User API endpoints.
 
-GET /users                   — list all active users
-GET /users/{user_id}         — single user with settings
-GET /users/{user_id}/stats   — aggregate stats
-GET /users/{user_id}/streak  — streak data
-GET /users/{user_id}/topics  — topic frequency analysis
+GET /users                          — list all active users
+GET /users/check-username/{name}    — check vanity handle availability
+PUT /users/settings/username        — claim or update vanity handle
+GET /users/{identifier}             — single user (by numeric ID or username)
+GET /users/{identifier}/stats       — aggregate stats
+GET /users/{identifier}/streak      — streak data
+GET /users/{identifier}/topics      — topic frequency analysis
 """
 
 import logging
 import os
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Query, Depends, HTTPException
@@ -30,6 +33,7 @@ from api.schemas.users import (
     UserActivityResponse,
     EmailUpdateRequest,
     TimezoneUpdateRequest,
+    UsernameUpdateRequest,
     HeatmapResponse,
     UserDifficulty,
     DashboardAggregateResponse,
@@ -44,14 +48,78 @@ logger = logging.getLogger("dsa_bot.api.users")
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+# ── Username blocklist & validation ──────────────────────────────────────────
+
+RESERVED_NAMES = frozenset({
+    # Legal, Operations & Support
+    'contact', 'about', 'privacy', 'terms', 'tos', 'legal', 'security', 'abuse', 'noc', 'info',
+    'support', 'billing', 'invoice', 'sales', 'marketing', 'jobs', 'careers', 'press', 'media',
+    'helpdesk', 'status', 'compliance', 'copyright', 'disclaimer', 'service', 'services',
+
+    # System Administration & Infrastructure
+    'root', 'admin', 'administrator', 'sysadmin', 'mod', 'moderator', 'staff', 'helper', 'vip',
+    'official', 'bot', 'dsabot', 'system', 'dev', 'developer', 'owner', 'founder', 'creator',
+    'server', 'database', 'db', 'postgres', 'sql', 'query', 'internal', 'localhost', 'bin',
+    'etc', 'var', 'ssl', 'cert', 'certificate', 'superuser', 'su', 'manager', 'webmaster',
+    'webadmin', 'hostmaster', 'hostname', 'operator',
+
+    # Common Attack/Scanner & CMS Targets
+    'wordpress', 'wp', 'wpuser', 'wpadmin', 'qwerty', 'asdf', 'password', 'testuser',
+
+    # Authentication & Identity
+    'login', 'logout', 'register', 'signup', 'signin', 'signout', 'auth', 'oauth', 'session',
+    'sessions', 'token', 'cookie', 'cookies', 'csrf', 'xss', 'reset-password', 'forgot-password',
+    'email', 'verify', 'activate', 'invite', 'mfa', '2fa', 'captcha',
+
+    # Web App Infrastructure & Routes
+    'api', 'v1', 'v2', 'v3', 'v4', 'latest', 'graphql', 'rest', 'rpc', 'ws', 'websocket',
+    'webhooks', 'webhook', 'callback', 'redirect', 'assets', 'static', 'public', 'private',
+    'index', 'main', 'home', 'config', 'settings', 'preferences', 'profile', 'upload',
+    'download', 'export', 'import', 'docs', 'documentation', 'changelog',
+
+    # DSA Features & Terminology
+    'problems', 'problem', 'solutions', 'solution', 'challenges', 'challenge', 'practice', 'practise',
+    'exercise', 'exercises', 'tests', 'test', 'testing', 'preparation', 'prep', 'interview', 'interviews',
+    'contest', 'contests', 'mock', 'arrays', 'strings', 'trees', 'graphs', 'linkedlist', 'algorithms',
+    'streak', 'streaks', 'rank', 'ranking', 'rankings', 'points', 'leaderboard', 'analytics', 'dashboard', 'metrics',
+
+    # Placeholder & Structural Code Hazards
+    'me', 'null', 'undefined', 'true', 'false', 'void', 'anonymous', 'guest', 'none', 'nil',
+    'default', 'user', 'user1', 'admin1', 'admin2', 'test1', 'demo', 'member', 'members',
+    'community', 'everyone', 'here', 'all',
+
+    # Static Assets, Well-Known Files & System State
+    'robots.txt', 'favicon.ico', 'humans.txt', 'keybase.txt', 'sitemap', 'sitemaps', 'crossdomain.xml',
+    'error', 'errors', 'exception', 'blocked', 'forbidden', 'expired', 'trial', 'account', 'accounts',
+    'backup', 'backups', 'archive', 'forum', 'forums', 'wiki', 'webmail', 'newsletter', 'newsletters',
+    'subscribe', 'unsubscribe',
+})
+
+_USERNAME_RE = re.compile(r'^[a-z0-9_]+$')
+
+def _validate_username(username: str) -> tuple[bool, str]:
+    """Validate format + blocklist. Returns (ok, reason)."""
+    if not username or len(username) < 4:
+        return False, "Username must be at least 4 characters."
+    if len(username) > 20:
+        return False, "Username must be at most 20 characters."
+    if not _USERNAME_RE.match(username):
+        return False, "Only lowercase letters, numbers, and underscores allowed."
+    if username in RESERVED_NAMES:
+        return False, "This username is reserved for system use."
+    return True, ""
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _get_user_or_404(user_id: str) -> dict:
-    """Fetch user from DB or raise 404."""
-    uid_int = int(user_id)
-    user = await database.get_user(uid_int)
+async def _get_user_or_404(identifier: str) -> dict:
+    """Smart resolver: numeric Discord ID → get_user, else → get_user_by_username."""
+    if re.fullmatch(r'\d{17,21}', identifier):
+        user = await database.get_user(int(identifier))
+    else:
+        user = await database.get_user_by_username(identifier)
     if not user:
-        raise NotFoundError("User", user_id)
+        raise NotFoundError("User", identifier)
     return user
 
 
@@ -96,6 +164,7 @@ async def list_users(
             UserBase(
                 user_id=str(u["user_id"]),
                 discord_username=u.get("discord_username"),
+                username=u.get("username"),
                 email=u.get("email"),
                 timezone=u.get("timezone", "Asia/Kolkata"),
                 is_active=bool(u.get("is_active", 1)),
@@ -112,22 +181,83 @@ async def list_users(
     )
 
 
+# ── Username availability & claim ────────────────────────────────────────────
+# These MUST be defined before the /{identifier} catch-all so FastAPI matches
+# the static path segments first.
+
+@router.get(
+    "/check-username/{username}",
+    response_model=APIResponse,
+    summary="Check username availability",
+    description="Validates format, checks blocklist, and queries uniqueness. Public endpoint.",
+)
+async def check_username_route(username: str):
+    clean_username = username.strip().lower()
+
+    if clean_username in RESERVED_NAMES:
+        return APIResponse(data={"available": False, "reason": "This username is reserved for system use."})
+
+    valid, reason = _validate_username(clean_username)
+    if not valid:
+        return APIResponse(data={"available": False, "reason": reason})
+
+    available = await database.check_username_available(clean_username)
+    if not available:
+        return APIResponse(data={"available": False, "reason": "This username is already taken."})
+
+    return APIResponse(data={"available": True, "reason": ""})
+
+
+@router.put(
+    "/settings/username",
+    response_model=APIResponse[UserDetail],
+    summary="Claim or update vanity username",
+    description="Authenticated owner-only. Validates format, checks blocklist + uniqueness, then persists.",
+)
+async def update_username_route(payload: UsernameUpdateRequest, current_user = Depends(get_current_user)):
+    clean_username = payload.username.strip().lower()
+
+    if clean_username in RESERVED_NAMES:
+        raise HTTPException(status_code=400, detail="This username is reserved for system use.")
+
+    _verify_owner(payload.user_id, current_user)
+    await _get_user_or_404(payload.user_id)
+
+    valid, reason = _validate_username(clean_username)
+    if not valid:
+        raise HTTPException(status_code=400, detail=reason)
+
+    available = await database.check_username_available(clean_username)
+    if not available:
+        # Allow if the user already owns this exact username
+        existing_user = await database.get_user_by_username(clean_username)
+        if not existing_user or str(existing_user["user_id"]) != str(payload.user_id):
+            raise HTTPException(status_code=409, detail="This username is already taken.")
+
+    await database.set_username(int(payload.user_id), clean_username)
+    # Return the updated profile
+    return await get_user(payload.user_id, current_user)
+
+
 # ── Single User ──────────────────────────────────────────────────────────────
 
 @router.get(
-    "/{user_id}",
+    "/{identifier}",
     response_model=APIResponse[UserDetail],
     summary="Get user details",
-    description="Returns full user profile including bot settings.",
+    description="Returns full user profile. Accepts numeric Discord ID or vanity username. Public access; personal fields redacted for non-owners.",
 )
-async def get_user(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    user = await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user(identifier: str, current_user = Depends(get_current_user)):
+    # Public route — no hard auth required. current_user is None for guests.
+    user = await _get_user_or_404(identifier)
+    user_id_str = str(user["user_id"])
+    uid_int = user["user_id"]
 
-    # Only expose settings to the owner
-    c_id = str(current_user.id if hasattr(current_user, "id") else current_user.get("id", ""))
-    is_owner = (c_id == str(user_id))
+    # Determine ownership: only the authenticated profile owner gets private fields
+    c_id = ""
+    if current_user:
+        c_id = str(current_user.id if hasattr(current_user, "id") else current_user.get("id", ""))
+    is_owner = bool(c_id) and (c_id == user_id_str)
 
     settings = None
     if is_owner:
@@ -141,9 +271,10 @@ async def get_user(user_id: str, current_user = Depends(get_current_user)):
 
     return APIResponse(
         data=UserDetail(
-            user_id=str(user["user_id"]),
+            user_id=user_id_str,
             discord_username=user.get("discord_username"),
-            email=user.get("email") if is_owner else None,  # hide email for non-owners
+            username=user.get("username"),
+            email=user.get("email") if is_owner else None,  # Redact email for public/guest viewers
             timezone=user.get("timezone", "Asia/Kolkata"),
             is_active=bool(user.get("is_active", 1)),
             created_at=user.get("created_at"),
@@ -152,7 +283,7 @@ async def get_user(user_id: str, current_user = Depends(get_current_user)):
     )
 
 
-# ── Single User ──────────────────────────────────────────────────────────────
+# ── Email & Timezone ─────────────────────────────────────────────────────────
 
 @router.put(
     "/{user_id}/email",
@@ -162,8 +293,8 @@ async def get_user(user_id: str, current_user = Depends(get_current_user)):
 )
 async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     await database.update_user_email(uid_int, payload.email)
     return await get_user(user_id, current_user)
 
@@ -176,8 +307,8 @@ async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, cur
 )
 async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateRequest, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     import asyncio
     def _update():
         with database.db_manager.get_connection() as conn:
@@ -193,12 +324,12 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
     "/{user_id}/dashboard-aggregate",
     response_model=APIResponse[DashboardAggregateResponse],
     summary="Get combined dashboard data",
-    description="Returns topics, difficulty, and stats in a single pass to optimize database load.",
+    description="Returns topics, difficulty, and stats in a single pass. Publicly accessible without authentication.",
 )
-async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_dashboard_aggregate(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
 
     logs = await database.get_progress_logs(uid_int)
     
@@ -315,12 +446,12 @@ async def get_dashboard_aggregate(user_id: str, current_user = Depends(get_curre
     "/{user_id}/stats",
     response_model=APIResponse[UserStats],
     summary="Get user stats",
-    description="Returns aggregate statistics: messages, consistency, streak, today's status.",
+    description="Returns aggregate statistics: messages, consistency, streak, today's status. Publicly accessible without authentication.",
 )
-async def get_user_stats(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_stats(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
 
     # Reuse existing handler logic — returns a rich dict
     report = await get_status_report(uid_int)
@@ -347,12 +478,12 @@ async def get_user_stats(user_id: str, current_user = Depends(get_current_user))
     "/{user_id}/streak",
     response_model=APIResponse[UserStreak],
     summary="Get user streak",
-    description="Returns current and longest streak information.",
+    description="Returns current and longest streak information. Publicly accessible without authentication.",
 )
-async def get_user_streak(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_streak(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     streak = await database.get_streak(uid_int)
 
     return APIResponse(
@@ -371,12 +502,12 @@ async def get_user_streak(user_id: str, current_user = Depends(get_current_user)
     "/{user_id}/topics",
     response_model=APIResponse[UserTopics],
     summary="Get user topic analysis",
-    description="Returns DSA topic frequency analysis for the user's progress logs.",
+    description="Returns DSA topic frequency analysis for the user's progress logs. Publicly accessible without authentication.",
 )
-async def get_user_topics(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_topics(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
 
     # Reuse existing handler logic
     topic_data = await get_topic_summary(uid_int)
@@ -400,12 +531,12 @@ async def get_user_topics(user_id: str, current_user = Depends(get_current_user)
     "/{user_id}/activity",
     response_model=APIResponse[UserActivityResponse],
     summary="Get recent user activity",
-    description="Returns the user's latest progress logs for a timeline feed.",
+    description="Returns the user's latest progress logs for a timeline feed. Publicly accessible without authentication.",
 )
-async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50), current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50)):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
 
     logs = await database.get_recent_progress_logs(uid_int, limit=limit)
     
@@ -432,17 +563,18 @@ async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50), c
     "/{user_id}/heatmap",
     response_model=APIResponse[HeatmapResponse],
     summary="Get user heatmap",
-    description="Returns daily question counts for the past year.",
+    description="Returns daily question counts for the past year. Publicly accessible without authentication.",
 )
-async def get_user_heatmap_route(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_heatmap_route(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     data = await database.get_user_heatmap(uid_int)
     return APIResponse(
         data=HeatmapResponse(
             user_id=user_id,
             dates=data["dates"],
+            rest_dates=data.get("rest_dates", []),
             active_days=data["active_days"],
             current_streak=data["current_streak"],
             max_streak=data["max_streak"]
@@ -455,12 +587,12 @@ async def get_user_heatmap_route(user_id: str, current_user = Depends(get_curren
     "/{user_id}/difficulty",
     response_model=APIResponse[UserDifficulty],
     summary="Get user difficulty stats",
-    description="Returns aggregate counts of easy, medium, hard problems.",
+    description="Returns aggregate counts of easy, medium, hard problems. Publicly accessible without authentication.",
 )
-async def get_user_difficulty(user_id: str, current_user = Depends(get_current_user)):
-    _require_auth(current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+async def get_user_difficulty(user_id: str):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     from handlers.summary_handler import get_difficulty_summary
     diff_data = await get_difficulty_summary(uid_int)
     
@@ -485,8 +617,8 @@ async def get_user_difficulty(user_id: str, current_user = Depends(get_current_u
 )
 async def export_user_data(user_id: str, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    await _get_user_or_404(user_id)
-    uid_int = int(user_id)
+    resolved = await _get_user_or_404(user_id)
+    uid_int = resolved["user_id"]
     
     from services.export_service import export_progress_csv
     filepath = await export_progress_csv(uid_int)

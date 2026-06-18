@@ -32,13 +32,14 @@ _SORT_KEY_MAP = {
 
 async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardResponse:
     """Shared leaderboard builder reusing database.get_leaderboard_data()."""
-    data = await database.get_leaderboard_data()
+    result = await database.get_leaderboard_data()
+    total_registered = result["total_registered_users"]
+    data = result["rankings"]
 
     sort_key = _SORT_KEY_MAP.get(sort_by, "current_streak")
     data.sort(key=lambda x: x.get(sort_key, 0), reverse=True)
 
-    total_users = len(data)
-    active_streaks = sum(1 for d in data if d.get("current_streak", 0) > 0)
+    active_streaks = len(data)  # every row already has streak >= 1
     entries = []
 
     for rank, entry in enumerate(data[:limit], start=1):
@@ -47,6 +48,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
                 rank=rank,
                 user_id=str(entry["user_id"]),
                 discord_username=entry.get("discord_username"),
+                username=entry.get("username"),
                 current_streak=entry.get("current_streak", 0),
                 longest_streak=entry.get("longest_streak", 0),
                 consistency_pct=entry.get("consistency", 0.0),
@@ -57,7 +59,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
 
     return LeaderboardResponse(
         sort_by=sort_by,
-        total_users=total_users,
+        total_users=total_registered,
         active_streaks=active_streaks,
         entries=entries,
     )

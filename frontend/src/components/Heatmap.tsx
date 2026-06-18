@@ -2,19 +2,22 @@ import React, { useMemo } from 'react';
 
 interface HeatmapProps {
   data: Record<string, number>;
+  restDates?: Set<string>;
   activeDays: number;
   currentStreak: number;
   maxStreak: number;
   loading?: boolean;
 }
 
-const Heatmap: React.FC<HeatmapProps> = ({ data, activeDays, currentStreak, maxStreak, loading }) => {
+const REST_COLOR = '#6D8AB0';
+
+const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentStreak, maxStreak, loading }) => {
   const { months, weekdays } = useMemo(() => {
     const today = new Date();
     const startDate = new Date();
     startDate.setDate(today.getDate() - 364); // Last 365 days
 
-    const dates = [];
+    const dates: Date[] = [];
     const curr = new Date(startDate);
     while (curr <= today) {
       dates.push(new Date(curr));
@@ -103,20 +106,28 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, activeDays, currentStreak, maxS
                   if (!date) return <div key={`empty-${dIdx}`} style={{ width: '14px', height: '14px' }} />;
 
                   const dateStr = formatDate(date);
+                  const isRest = restDates?.has(dateStr) ?? false;
                   const count = data[dateStr] || 0;
+                  const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+                  // Rest day: slate-blue override, distinct tooltip
+                  const tileColor = isRest ? REST_COLOR : getColor(count);
+                  const tooltip = isRest
+                    ? `😴 Rest Day : ${formattedDate}`
+                    : `${count} question${count === 1 ? '' : 's'} on ${formattedDate}`;
 
                   return (
                     <div
                       key={dateStr}
-                      title={`${count} question${count === 1 ? '' : 's'} on ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                      title={tooltip}
                       style={{
                         width: '14px',
                         height: '14px',
-                        backgroundColor: getColor(count),
+                        backgroundColor: tileColor,
                         borderRadius: '3px',
                         cursor: 'pointer',
                         transition: 'transform 0.1s',
-                        boxShadow: count > 0 ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : 'none'
+                        boxShadow: (count > 0 || isRest) ? 'inset 0 0 0 1px rgba(0,0,0,0.1)' : 'none'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
                       onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
@@ -127,6 +138,18 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, activeDays, currentStreak, maxS
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', marginTop: '12px', fontSize: '11px', color: '#64748b' }}>
+        <span>Less</span>
+        {["#1e293b", "#065f46", "#10b981", "#047857"].map((c, i) => (
+          <div key={i} style={{ width: '12px', height: '12px', backgroundColor: c, borderRadius: '2px' }} />
+        ))}
+        <span>More</span>
+        <span style={{ marginLeft: '12px', borderLeft: '1px solid #334155', paddingLeft: '12px' }}>😴</span>
+        <div style={{ width: '12px', height: '12px', backgroundColor: REST_COLOR, borderRadius: '2px' }} />
+        <span>Rest</span>
       </div>
     </div>
   );

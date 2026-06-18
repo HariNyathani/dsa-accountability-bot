@@ -39,11 +39,11 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
                 "average consistency, and the global longest streak.",
 )
 async def platform_overview():
-    users = await database.get_all_active_users()
-    leaderboard = await database.get_leaderboard_data()
+    leaderboard_result = await database.get_leaderboard_data()
+    total_users = leaderboard_result["total_registered_users"]
+    leaderboard = leaderboard_result["rankings"]
 
-    total_users = len(users)
-    active_users = sum(1 for u in leaderboard if u.get("current_streak", 0) > 0)
+    active_users = len(leaderboard)  # every row already has streak >= 1
     total_messages = sum(u.get("total_messages", 0) for u in leaderboard)
     total_days = sum(u.get("days_posted", 0) for u in leaderboard)
 
@@ -87,15 +87,12 @@ async def platform_overview():
 async def global_topics(
     limit: int = Query(20, ge=1, le=50, description="Max topics to return"),
 ):
-    users = await database.get_all_active_users()
+    # Single bulk query — replaces per-user N+1 loop
+    logs = await database.get_all_progress_topics()
     all_topics: list[str] = []
 
-    for user in users:
-        logs = await database.get_progress_logs(user["user_id"])
-        for log in logs:
-            if log.get("message_type") in ("plan", "rest"):
-                continue
-            all_topics.extend(_extract_exposure_topics(log))
+    for log in logs:
+        all_topics.extend(_extract_exposure_topics(log))
 
     counter = Counter(all_topics)
     top = counter.most_common(limit)
@@ -121,7 +118,6 @@ async def global_topics(
 async def activity_trend(
     period: str = Query("30d", description="Time window: '7d', '30d', or 'all'"),
 ):
-    users = await database.get_all_active_users()
     today = today_str()
 
     # Determine date range
@@ -134,26 +130,21 @@ async def activity_trend(
 
     start_date = (parse_date(today) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
-    # Collect daily_status rows from all users
-    day_map: dict[str, dict] = {}  # date → {"users_posted": int, "total_messages": int}
+    # Two GROUP BY queries in a single connection checkout — replaces 2×N loop
+    bulk = await database.get_activity_trend_bulk(start_date, today)
 
-    for user in users:
-        statuses = await database.get_daily_statuses_range(user["user_id"], start_date, today)
-        for s in statuses:
-            d = s["date"]
-            if d not in day_map:
-                day_map[d] = {"users_posted": 0, "total_messages": 0}
-            if s.get("posted_flag"):
-                day_map[d]["users_posted"] += 1
+    # Merge the two result sets into a day_map
+    day_map: dict[str, dict] = {}
 
-        logs = await database.get_progress_logs(user["user_id"], start_date, today)
-        for log in logs:
-            if log.get("message_type") in ("plan", "rest"):
-                continue
-            d = log["log_date"]
-            if d not in day_map:
-                day_map[d] = {"users_posted": 0, "total_messages": 0}
-            day_map[d]["total_messages"] += len(log.get("topics", "").split(", ")) if log.get("topics") else 0
+    for row in bulk["statuses"]:
+        d = row["date"]
+        day_map[d] = {"users_posted": row["users_posted"], "total_messages": 0}
+
+    for row in bulk["logs"]:
+        d = row["date"]
+        if d not in day_map:
+            day_map[d] = {"users_posted": 0, "total_messages": 0}
+        day_map[d]["total_messages"] = int(row["total_messages"] or 0)
 
     # Build sorted daily list
     daily = sorted(
@@ -174,3 +165,4 @@ async def activity_trend(
             daily_activity=daily,
         )
     )
+

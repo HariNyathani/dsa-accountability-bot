@@ -205,6 +205,53 @@ async def get_all_active_users() -> List[dict]:
     return await _run_sync(_sync)
 
 
+
+# ── Username (vanity handle) helpers ─────────────────────────────────────────
+
+async def get_user_by_username(username: str) -> Optional[dict]:
+    """Fetch an active user by their vanity username handle."""
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM users WHERE username = %s AND is_active = 1",
+                    (username,),
+                )
+                row = cur.fetchone()
+                if row:
+                    d = dict(row)
+                    if 'created_at' in d and d['created_at']:
+                        d['created_at'] = str(d['created_at'])
+                    return d
+                return None
+    return await _run_sync(_sync)
+
+
+async def check_username_available(username: str) -> bool:
+    """Return True if the username is not yet claimed by any user."""
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM users WHERE username = %s LIMIT 1",
+                    (username,),
+                )
+                return cur.fetchone() is None
+    return await _run_sync(_sync)
+
+
+async def set_username(user_id: int, username: Optional[str]) -> None:
+    """Assign (or clear) a vanity username for a user."""
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET username = %s WHERE user_id = %s",
+                    (username, user_id),
+                )
+    return await _run_sync(_sync)
+
+
 # ── User settings helpers ────────────────────────────────────────────────────
 
 async def get_user_settings(user_id: int) -> Optional[dict]:
@@ -395,7 +442,7 @@ async def get_user_heatmap(user_id: int) -> dict:
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                # Postgres JSONB translation
+                # Question counts — exclude rest days and plan entries
                 cur.execute("""
                     SELECT 
                         log_date,
@@ -410,19 +457,32 @@ async def get_user_heatmap(user_id: int) -> dict:
                             END
                         ) as daily_questions
                     FROM progress_logs 
-                    WHERE user_id = %s AND log_date >= CURRENT_DATE - INTERVAL '365 days' AND message_type != 'plan'
+                    WHERE user_id = %s AND log_date >= CURRENT_DATE - INTERVAL '365 days'
+                      AND message_type NOT IN ('plan', 'rest')
                     GROUP BY log_date
                 """, (user_id,))
                 
                 rows = cur.fetchall()
                 heatmap_data = {str(row["log_date"]): int(row["daily_questions"] or 0) for row in rows}
                 
+                # Rest day dates — separate query
+                cur.execute("""
+                    SELECT DISTINCT log_date
+                    FROM progress_logs
+                    WHERE user_id = %s AND log_date >= CURRENT_DATE - INTERVAL '365 days'
+                      AND (message_type = 'rest' OR topics = 'Rest')
+                """, (user_id,))
+                rest_dates = [str(row["log_date"]) for row in cur.fetchall()]
+                
                 cur.execute("SELECT current_streak, longest_streak FROM streaks WHERE user_id = %s", (user_id,))
                 streak_row = cur.fetchone()
                 
+                all_active_dates = set(heatmap_data.keys()) | set(rest_dates)
+                
                 return {
                     "dates": heatmap_data,
-                    "active_days": len(heatmap_data),
+                    "rest_dates": rest_dates,
+                    "active_days": len(all_active_dates),
                     "current_streak": streak_row["current_streak"] if streak_row else 0,
                     "max_streak": streak_row["longest_streak"] if streak_row else 0
                 }
@@ -649,7 +709,137 @@ async def update_streak(user_id: int, current_streak: int, longest_streak: int, 
 
 # ── Leaderboard helpers ──────────────────────────────────────────────────────
 
-async def get_leaderboard_data() -> List[dict]:
+async def get_leaderboard_data() -> dict:
+    """Return leaderboard rankings (streak >= 1) plus the total registered-user count.
+
+    Returns ``{"total_registered_users": int, "rankings": List[dict]}``.
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Lightweight count of the full active user pool
+                cur.execute("SELECT COUNT(*) FROM users WHERE is_active = 1")
+                total_registered_users = cur.fetchone()[0]
+
+                cur.execute("""
+                    SELECT
+                        u.user_id,
+                        u.discord_username,
+                        u.username,
+                        COALESCE(s.current_streak, 0) as current_streak,
+                        COALESCE(s.longest_streak, 0) as longest_streak,
+                        COALESCE(s.last_post_date::text, '') as last_post_date,
+                        (SELECT COALESCE(SUM(
+                            CASE
+                                WHEN p.parsed_fields IS NOT NULL
+                                     AND p.parsed_fields ? 'log'
+                                     AND jsonb_array_length(p.parsed_fields->'log') > 0
+                                THEN (
+                                    SELECT COALESCE(SUM((elem->>'question_count')::int), 0)
+                                    FROM jsonb_array_elements(p.parsed_fields->'log') AS elem
+                                )
+                                WHEN p.topics IS NOT NULL AND p.topics != ''
+                                THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1
+                                ELSE 0
+                            END
+                        ), 0) FROM progress_logs p WHERE p.user_id = u.user_id AND p.message_type NOT IN ('plan', 'rest')) as total_messages,
+                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id AND d.posted_flag = 1) as days_posted,
+                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id) as total_days
+                    FROM users u
+                    LEFT JOIN streaks s ON u.user_id = s.user_id
+                    WHERE u.is_active = 1
+                      AND COALESCE(s.current_streak, 0) >= 1
+                """)
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    total = d["total_days"]
+                    d["consistency"] = round((d["days_posted"] / total) * 100, 1) if total > 0 else 0.0
+                    rows.append(d)
+                return {
+                    "total_registered_users": total_registered_users,
+                    "rankings": rows,
+                }
+    return await _run_sync(_sync)
+
+
+# ── Analytics bulk helpers (N+1 elimination) ─────────────────────────────────
+
+async def get_all_progress_topics() -> List[dict]:
+    """Bulk-fetch topic data for ALL progress logs in a single query.
+
+    Returns only the columns needed for topic extraction (topics, parsed_fields),
+    pre-filtered to exclude plan/rest entries.  Replaces the old per-user
+    ``get_progress_logs()`` loop (N queries → 1).
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT topics, parsed_fields
+                    FROM progress_logs
+                    WHERE message_type NOT IN ('plan', 'rest')
+                """)
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    if isinstance(d.get("parsed_fields"), dict) or isinstance(d.get("parsed_fields"), list):
+                        d["parsed_fields"] = json.dumps(d["parsed_fields"])
+                    rows.append(d)
+                return rows
+    return await _run_sync(_sync)
+
+
+async def get_activity_trend_bulk(start_date: str, end_date: str) -> dict:
+    """Aggregate daily posting activity across ALL users in two queries.
+
+    Returns ``{"statuses": [{date, users_posted}], "logs": [{date, total_messages}]}``.
+    Both queries run within a single connection checkout, replacing the old
+    per-user double loop (2N queries → 2).
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                # Query 1: Daily posting user counts
+                cur.execute("""
+                    SELECT
+                        date::text AS date,
+                        COUNT(*) FILTER (WHERE posted_flag = 1) AS users_posted
+                    FROM daily_status
+                    WHERE date BETWEEN %s AND %s
+                    GROUP BY date
+                    ORDER BY date
+                """, (start_date, end_date))
+                statuses = [dict(r) for r in cur.fetchall()]
+
+                # Query 2: Daily message volume (topic-count based)
+                cur.execute("""
+                    SELECT
+                        log_date::text AS date,
+                        SUM(
+                            CASE
+                                WHEN topics IS NOT NULL AND topics != ''
+                                THEN LENGTH(topics) - LENGTH(REPLACE(topics, ',', '')) + 1
+                                ELSE 0
+                            END
+                        ) AS total_messages
+                    FROM progress_logs
+                    WHERE log_date BETWEEN %s AND %s
+                      AND message_type NOT IN ('plan', 'rest')
+                    GROUP BY log_date
+                    ORDER BY log_date
+                """, (start_date, end_date))
+                logs = [dict(r) for r in cur.fetchall()]
+
+                return {"statuses": statuses, "logs": logs}
+    return await _run_sync(_sync)
+
+
+# ── Admin bulk-metrics helper ────────────────────────────────────────────────
+
+async def get_admin_user_metrics(today: str) -> List[dict]:
+    """Fetch all active users with streaks, totals, consistency, and posted_today
+    in a **single query**.  Replaces the old N+1 loop (157 queries → 1)."""
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -657,21 +847,63 @@ async def get_leaderboard_data() -> List[dict]:
                     SELECT
                         u.user_id,
                         u.discord_username,
-                        COALESCE(s.current_streak, 0) as current_streak,
-                        COALESCE(s.longest_streak, 0) as longest_streak,
-                        COALESCE(s.last_post_date::text, '') as last_post_date,
-                        (SELECT COALESCE(SUM(CASE WHEN p.topics IS NOT NULL AND p.topics != '' THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1 ELSE 0 END), 0) FROM progress_logs p WHERE p.user_id = u.user_id AND p.message_type != 'plan') as total_messages,
-                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id AND d.posted_flag = 1) as days_posted,
-                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id) as total_days
+                        u.is_active,
+                        COALESCE(s.current_streak, 0)  AS current_streak,
+                        COALESCE(s.longest_streak, 0)  AS longest_streak,
+
+                        -- Total questions (same JSONB logic as get_message_count)
+                        COALESCE((
+                            SELECT SUM(
+                                CASE
+                                    WHEN p.parsed_fields IS NOT NULL
+                                         AND p.parsed_fields ? 'log'
+                                         AND jsonb_array_length(p.parsed_fields->'log') > 0
+                                    THEN (
+                                        SELECT COALESCE(SUM((elem->>'question_count')::int), 0)
+                                        FROM jsonb_array_elements(p.parsed_fields->'log') AS elem
+                                    )
+                                    WHEN p.topics IS NOT NULL AND p.topics != ''
+                                    THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1
+                                    ELSE 0
+                                END
+                            )
+                            FROM progress_logs p
+                            WHERE p.user_id = u.user_id
+                              AND p.message_type NOT IN ('plan', 'rest')
+                        ), 0) AS total_questions,
+
+                        -- Consistency components
+                        COALESCE((
+                            SELECT COUNT(*) FILTER (WHERE d.posted_flag = 1)
+                            FROM daily_status d WHERE d.user_id = u.user_id
+                        ), 0) AS days_posted,
+                        COALESCE((
+                            SELECT COUNT(*)
+                            FROM daily_status d WHERE d.user_id = u.user_id
+                        ), 0) AS total_days,
+
+                        -- Posted today
+                        EXISTS (
+                            SELECT 1 FROM daily_status d
+                            WHERE d.user_id = u.user_id
+                              AND d.date = %s
+                              AND d.posted_flag = 1
+                        ) AS posted_today
+
                     FROM users u
                     LEFT JOIN streaks s ON u.user_id = s.user_id
                     WHERE u.is_active = 1
-                """)
+                    ORDER BY COALESCE(s.current_streak, 0) DESC
+                """, (today,))
+
                 rows = []
                 for r in cur.fetchall():
                     d = dict(r)
-                    total = d["total_days"]
-                    d["consistency"] = round((d["days_posted"] / total) * 100, 1) if total > 0 else 0.0
+                    total = d.pop("total_days")
+                    days_posted_val = d.pop("days_posted")
+                    d["consistency_pct"] = round(
+                        (days_posted_val / total) * 100, 1
+                    ) if total > 0 else 0.0
                     rows.append(d)
                 return rows
     return await _run_sync(_sync)

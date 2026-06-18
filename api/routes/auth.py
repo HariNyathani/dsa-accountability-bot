@@ -137,14 +137,21 @@ async def get_me(request: Request):
     if user.avatar:
         avatar_url = f"https://cdn.discordapp.com/avatars/{user.id}/{user.avatar}.png?size=128"
 
+    # Look up vanity handle from the database
+    from db.database import get_user
+    db_user = await get_user(int(user.id))
+    profile_handle = db_user.get("username") if db_user else None
+
     return {
         "authenticated": True,
         "user": {
             "id": user.id,
             "username": user.username,
+            "profile_handle": profile_handle,
             "avatar": user.avatar,
             "avatar_url": avatar_url,
             "discriminator": user.discriminator,
+            "is_admin": bool(config.ADMIN_DISCORD_ID) and str(user.id) == str(config.ADMIN_DISCORD_ID),
         },
     }
 

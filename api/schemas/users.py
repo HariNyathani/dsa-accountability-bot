@@ -11,11 +11,16 @@ class EmailUpdateRequest(BaseModel):
 class TimezoneUpdateRequest(BaseModel):
     timezone: str
 
+class UsernameUpdateRequest(BaseModel):
+    user_id: str
+    username: str
+
 
 class UserBase(BaseModel):
     """Core user fields exposed by the API."""
     user_id: str
     discord_username: Optional[str] = None
+    username: Optional[str] = None
     email: Optional[str] = None
     timezone: str = "Asia/Kolkata"
     is_active: bool = True
@@ -94,6 +99,7 @@ class UserActivityResponse(BaseModel):
 class HeatmapResponse(BaseModel):
     user_id: str
     dates: dict[str, int]
+    rest_dates: List[str] = []
     active_days: int
     current_streak: int
     max_streak: int

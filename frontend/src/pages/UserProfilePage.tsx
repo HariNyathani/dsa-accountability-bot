@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -15,20 +15,14 @@ import Heatmap from "../components/Heatmap";
 const COLORS = ["#6366f1", "#8b5cf6", "#10b981", "#f59e0b", "#0ea5e9", "#f43f5e", "#14b8a6", "#a855f7", "#ec4899", "#22d3ee"];
 
 export default function UserProfilePage() {
-  const { userId } = useParams<{ userId: string }>();
+  // Support both /users/:userId (legacy numeric) and /u/:identifier (vanity)
+  const { userId, identifier } = useParams<{ userId?: string; identifier?: string }>();
   const nav = useNavigate();
-  const uid = userId || "";
-  const { user: authUser, authenticated } = useAuth();
-  const isOwner = authenticated && authUser?.id === uid;
+  const uid = identifier || userId || "";
+  const { user: authUser, authenticated, loading: authLoading } = useAuth();
 
-  const [emailInput, setEmailInput] = useState("");
-  const [emailSaving, setEmailSaving] = useState(false);
-  const [emailSaved, setEmailSaved] = useState(false);
-  const [tzInput, setTzInput] = useState("Asia/Kolkata");
-  const [tzSaving, setTzSaving] = useState(false);
-  const [tzSaved, setTzSaved] = useState(false);
-
-  const validId = /^\d+$/.test(uid);
+  // A valid identifier is either a numeric Discord ID (17-21 digits) or a valid username string (2-20 chars, a-z0-9_)
+  const validId = /^\d{17,21}$/.test(uid) || /^[a-z0-9_]{4,20}$/.test(uid);
 
   const user = useApi(() => api.user(uid), [uid], validId);
   const stats = useApi(() => api.userStats(uid), [uid], validId);
@@ -36,10 +30,37 @@ export default function UserProfilePage() {
   const heatmap = useApi(() => api.heatmap(uid), [uid], validId);
   const sums = useApi(() => api.summaries(uid), [uid], validId);
 
+  // Once we have the actual user_id from the API response, use it for ownership checks
+  const resolvedUserId = user.data?.user_id || "";
+
+  // Wait for auth to resolve before computing ownership to avoid a flash
+  const isOwner = !authLoading && authenticated && !!resolvedUserId && authUser?.id === resolvedUserId;
+  // True when we know the viewer is definitely not the owner (auth settled)
+  const isPublicGuest = !authLoading && !isOwner;
+
+  // ── Email settings ──
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+
+  // ── Timezone settings ──
+  const [tzInput, setTzInput] = useState("Asia/Kolkata");
+  const [tzSaving, setTzSaving] = useState(false);
+  const [tzSaved, setTzSaved] = useState(false);
+
+  // ── Username settings ──
+  const [usernameInput, setUsernameInput] = useState("");
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameSaved, setUsernameSaved] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
+  const [usernameReason, setUsernameReason] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (isOwner && user.data) {
       setEmailInput(user.data.email || "");
       setTzInput(user.data.timezone || "Asia/Kolkata");
+      setUsernameInput(user.data.username || "");
     }
   }, [user.data, isOwner]);
 
@@ -48,7 +69,7 @@ export default function UserProfilePage() {
     setEmailSaving(true);
     setEmailSaved(false);
     try {
-      await api.updateEmail(uid, emailInput);
+      await api.updateEmail(resolvedUserId, emailInput);
       setEmailSaved(true);
       user.refetch();
     } catch (e) {
@@ -63,7 +84,7 @@ export default function UserProfilePage() {
     setTzSaving(true);
     setTzSaved(false);
     try {
-      await api.updateTimezone(uid, tzInput);
+      await api.updateTimezone(resolvedUserId, tzInput);
       setTzSaved(true);
       user.refetch();
     } catch (e) {
@@ -73,8 +94,69 @@ export default function UserProfilePage() {
     setTzSaving(false);
   };
 
+  // ── Username availability check (debounced) ──
+  const checkUsernameAvailability = useCallback(async (name: string) => {
+    if (!name || name.length < 4) {
+      setUsernameStatus("idle");
+      setUsernameReason("");
+      return;
+    }
+    setUsernameStatus("checking");
+    try {
+      const res = await api.checkUsername(name);
+      const d = res.data;
+      if (d.available) {
+        setUsernameStatus("available");
+        setUsernameReason("");
+      } else {
+        setUsernameStatus("taken");
+        setUsernameReason(d.reason || "Unavailable");
+      }
+    } catch {
+      setUsernameStatus("invalid");
+      setUsernameReason("Could not check availability.");
+    }
+  }, []);
+
+  const handleUsernameChange = (val: string) => {
+    // Force lowercase, strip invalid chars
+    const cleaned = val.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+    setUsernameInput(cleaned);
+    setUsernameSaved(false);
+
+    // If it matches the current username, show idle
+    if (cleaned === (user.data?.username || "")) {
+      setUsernameStatus("idle");
+      setUsernameReason("");
+      return;
+    }
+
+    // Debounce the availability check
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => checkUsernameAvailability(cleaned), 300);
+  };
+
+  const handleSaveUsername = async () => {
+    if (!isOwner || !usernameInput) return;
+    setUsernameSaving(true);
+    setUsernameSaved(false);
+    try {
+      await api.updateUsername(resolvedUserId, usernameInput);
+      setUsernameSaved(true);
+      setUsernameStatus("idle");
+      user.refetch();
+      // Navigate to the new vanity URL
+      nav(`/u/${usernameInput}`, { replace: true });
+    } catch (e: any) {
+      console.error(e);
+      setUsernameStatus("taken");
+      setUsernameReason(e.message || "Failed to save username.");
+    }
+    setUsernameSaving(false);
+  };
+
   if (!validId) return (
-    <EmptyState icon="⚠️" title="Invalid User" message={`The user ID "${userId}" is not valid.`} />
+    <EmptyState icon="⚠️" title="Invalid User" message={`The identifier "${uid}" is not valid.`} />
   );
 
   if (user.error) return <ErrorState message={user.error} onRetry={user.refetch} />;
@@ -94,17 +176,34 @@ export default function UserProfilePage() {
       {/* Back */}
       <button className="sort-tab" onClick={() => nav(-1)} style={{ marginBottom: 20 }}>← Back</button>
 
-      {/* Profile Header */}
       <div className="profile-header" style={{ marginBottom: "24px" }}>
         <div className="profile-avatar">{initials}</div>
         <div className="profile-info">
           <h2 style={{ marginBottom: "4px" }}>{u.discord_username || `User ${u.user_id}`}</h2>
           <p style={{ color: "#94A3B8", fontSize: "0.9rem" }}>
+            {u.username && (
+              <span style={{ color: "#a78bfa", fontWeight: 600 }}>@{u.username} · </span>
+            )}
             ID: {u.user_id} · Timezone: {u.timezone} · Joined: {u.created_at?.slice(0, 10) ?? "—"}
           </p>
-          {!isOwner && (
-            <span style={{ marginTop: "8px", display: "inline-block", padding: "3px 10px", background: "rgba(99,102,241,0.1)", color: "#818cf8", borderRadius: "100px", fontSize: "0.75rem", fontWeight: 600, border: "1px solid rgba(99,102,241,0.2)" }}>
-              👁 Viewing Public Profile
+          {isPublicGuest && (
+            <span
+              style={{
+                marginTop: "10px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "5px 14px",
+                background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))",
+                color: "#a5b4fc",
+                borderRadius: "100px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                border: "1px solid rgba(99,102,241,0.3)",
+                letterSpacing: "0.02em",
+              }}
+            >
+              👁️ Viewing Public Profile
             </span>
           )}
         </div>
@@ -125,6 +224,7 @@ export default function UserProfilePage() {
       {/* ROW 2 — Annual Heatmap */}
       <Heatmap
         data={heatmap.data?.dates || {}}
+        restDates={new Set(heatmap.data?.rest_dates || [])}
         activeDays={heatmap.data?.active_days || 0}
         currentStreak={heatmap.data?.current_streak || 0}
         maxStreak={heatmap.data?.max_streak || 0}
@@ -274,6 +374,84 @@ export default function UserProfilePage() {
       {/* OWNER ONLY — Settings */}
       {isOwner && (
         <>
+          {/* ── Claim Profile Handle ── */}
+          <div className="card chart-container" style={{ marginTop: "24px" }}>
+            <div className="chart-title">🔗 Claim Your Profile Handle</div>
+            <div style={{ fontSize: ".88rem", color: "#94A3B8", marginBottom: "16px" }}>
+              Choose a unique vanity URL for your profile. Only lowercase letters, numbers, and underscores (4–20 chars).
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ position: "relative", flexGrow: 1, maxWidth: "300px" }}>
+                <input
+                  id="username-input"
+                  type="text"
+                  placeholder="your_handle"
+                  value={usernameInput}
+                  onChange={(e) => handleUsernameChange(e.target.value)}
+                  maxLength={20}
+                  className="dsa-input"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: `1px solid ${
+                      usernameStatus === "available" ? "rgba(16,185,129,0.5)" :
+                      usernameStatus === "taken" || usernameStatus === "invalid" ? "rgba(244,63,94,0.5)" :
+                      "rgba(255,255,255,0.1)"
+                    }`,
+                    background: "rgba(0,0,0,0.2)",
+                    color: "#fff",
+                    transition: "border-color 0.2s ease",
+                  }}
+                />
+              </div>
+              <button
+                id="save-username-btn"
+                onClick={handleSaveUsername}
+                disabled={usernameSaving || usernameStatus === "taken" || usernameStatus === "invalid" || usernameStatus === "checking" || !usernameInput || usernameInput.length < 4}
+                className="dsa-btn dsa-btn-primary"
+                style={{ padding: "8px 16px" }}
+              >
+                {usernameSaving ? "Saving..." : "Save Handle"}
+              </button>
+              {usernameSaved && <span style={{ color: "#10b981", fontSize: ".85rem", fontWeight: 600 }}>✅ Saved</span>}
+            </div>
+
+            {/* Status indicator */}
+            {usernameInput.length >= 4 && usernameStatus !== "idle" && (
+              <div style={{ marginTop: "8px", fontSize: ".82rem", fontWeight: 500 }}>
+                {usernameStatus === "checking" && (
+                  <span style={{ color: "#94A3B8" }}>⏳ Checking availability...</span>
+                )}
+                {usernameStatus === "available" && (
+                  <span style={{ color: "#10b981" }}>✅ Available!</span>
+                )}
+                {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                  <span style={{ color: "#f43f5e" }}>❌ {usernameReason}</span>
+                )}
+              </div>
+            )}
+
+            {/* Live URL preview */}
+            {usernameInput.length >= 4 && (
+              <div style={{
+                marginTop: "12px",
+                padding: "10px 14px",
+                background: "rgba(99,102,241,0.08)",
+                border: "1px solid rgba(99,102,241,0.2)",
+                borderRadius: "8px",
+                fontSize: ".84rem",
+                color: "#a5b4fc",
+                fontFamily: "monospace",
+                letterSpacing: "0.02em",
+              }}>
+                {window.location.origin}/u/{usernameInput}
+              </div>
+            )}
+          </div>
+
+          {/* ── Email Notifications ── */}
           <div className="card chart-container" style={{ marginTop: "24px" }}>
             <div className="chart-title">📬 Email Notifications Setup</div>
             <div style={{ fontSize: ".88rem", color: "#94A3B8", marginBottom: "16px" }}>
@@ -300,6 +478,7 @@ export default function UserProfilePage() {
             </div>
           </div>
 
+          {/* ── Timezone ── */}
           <div className="card chart-container" style={{ marginTop: "20px" }}>
             <div className="chart-title">🌍 Timezone Settings</div>
             <div style={{ fontSize: ".88rem", color: "#94A3B8", marginBottom: "16px" }}>

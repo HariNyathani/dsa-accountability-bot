@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.middleware.error_handler import register_error_handlers
 from api.middleware.request_logger import RequestLoggingMiddleware
-from api.routes import health, users, leaderboard, analytics, summaries, reminders, auth, progress
+from api.routes import health, users, leaderboard, analytics, summaries, reminders, auth, progress, admin
 
 logger = logging.getLogger("dsa_bot.api")
 
@@ -74,5 +74,6 @@ def create_app() -> FastAPI:
     app.include_router(summaries.router)
     app.include_router(reminders.router)
     app.include_router(progress.router)
+    app.include_router(admin.router)
 
     return app

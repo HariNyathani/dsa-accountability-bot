@@ -6,7 +6,6 @@ const NAV = [
   { to: "/", icon: "📊", label: "Dashboard" },
   { to: "/leaderboard", icon: "🏆", label: "Leaderboard" },
   { to: "/analytics", icon: "📈", label: "Analytics" },
-  { to: "/users", icon: "👥", label: "Users" },
   { to: "/status", icon: "🟢", label: "System Status" },
 ];
 
@@ -18,10 +17,10 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-brand" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <img 
-            src="/Dsalogo.png" 
-            alt="DSA Logo" 
-            style={{ height: "64px", width: "auto", objectFit: "contain", flexShrink: 0 }} 
+          <img
+            src="/Dsalogo.png"
+            alt="DSA Logo"
+            style={{ height: "64px", width: "auto", objectFit: "contain", flexShrink: 0 }}
           />
           <div>
             <h1>DSA Tracker</h1>
@@ -59,7 +58,7 @@ export default function Layout() {
 
         <div className="sidebar-footer">
           <div className="footer-text">
-            DSA Accountability Bot V2.5<br />
+            DSA Accountability Bot V3.0<br />
             Discord + API + Dashboard
           </div>
           <div className="creator-signature">

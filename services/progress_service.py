@@ -209,7 +209,8 @@ async def process_progress_submission(
     source: str = "discord",
     channel_id: int = 0,
     override_date: str = None,
-    web_topics: list = None
+    web_topics: list = None,
+    acting_user_id: int = None
 ) -> dict:
     """
     Canonical backend progress-recording service.
@@ -553,6 +554,11 @@ async def process_progress_submission(
         }
 
     topics_str = ", ".join(topics)
+
+    # ── Audit trail: record admin override before serialization ──────
+    if acting_user_id is not None:
+        parsed_fields_dict["admin_override_by"] = acting_user_id
+
     parsed_fields_json = json.dumps(parsed_fields_dict)
 
     # Rate Limits

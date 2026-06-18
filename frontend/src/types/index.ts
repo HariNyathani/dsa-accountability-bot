@@ -58,6 +58,7 @@ export interface SystemStatus {
 export interface UserBase {
   user_id: string;
   discord_username: string | null;
+  username: string | null;
   email: string | null;
   timezone: string;
   is_active: boolean;
@@ -149,6 +150,7 @@ export interface LeaderboardEntry {
   rank: number;
   user_id: string;
   discord_username: string | null;
+  username: string | null;
   current_streak: number;
   longest_streak: number;
   consistency_pct: number;
@@ -239,6 +241,7 @@ export interface ReminderSchedule {
 export interface HeatmapResponse {
   user_id: string;
   dates: Record<string, number>;
+  rest_dates: string[];
   active_days: number;
   current_streak: number;
   max_streak: number;

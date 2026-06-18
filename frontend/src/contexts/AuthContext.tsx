@@ -18,15 +18,18 @@ import {
 export interface AuthUser {
   id: string;
   username: string;
+  profile_handle: string | null;
   avatar: string | null;
   avatar_url: string | null;
   discriminator: string;
+  is_admin: boolean;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   authenticated: boolean;
+  isAdmin: boolean;
   login: () => void;
   logout: () => Promise<void>;
 }
@@ -35,6 +38,7 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
   authenticated: false,
+  isAdmin: false,
   login: () => {},
   logout: async () => {},
 });
@@ -90,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         loading,
         authenticated: !!user,
+        isAdmin: !!user?.is_admin,
         login,
         logout,
       }}

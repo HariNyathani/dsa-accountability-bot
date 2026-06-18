@@ -16,6 +16,7 @@ from api.schemas.summaries import SummaryHistory, WeeklyReport, WeeklySummary
 from db import database
 from utils.streak_utils import recalculate_streak
 from utils.time_utils import last_week_boundaries, week_boundaries
+import re
 
 logger = logging.getLogger("dsa_bot.api.summaries")
 
@@ -23,8 +24,11 @@ router = APIRouter(tags=["Summaries"])
 
 
 async def _ensure_user(user_id: str) -> dict:
-    uid_int = int(user_id)
-    user = await database.get_user(uid_int)
+    """Resolve numeric Discord ID or vanity handle to a user dict."""
+    if re.fullmatch(r'\d{17,21}', user_id):
+        user = await database.get_user(int(user_id))
+    else:
+        user = await database.get_user_by_username(user_id)
     if not user:
         raise NotFoundError("User", user_id)
     return user
@@ -36,8 +40,8 @@ async def _ensure_user(user_id: str) -> dict:
     summary="Weekly summary history",
 )
 async def get_summaries(user_id: str):
-    await _ensure_user(user_id)
-    uid_int = int(user_id)
+    resolved = await _ensure_user(user_id)
+    uid_int = resolved["user_id"]
     import asyncio
     import psycopg2.extras
     def _fetch():
@@ -82,8 +86,8 @@ async def get_weekly_report(
     user_id: str,
     week: str = Query("last", description="'current' or 'last'"),
 ):
-    await _ensure_user(user_id)
-    uid_int = int(user_id)
+    resolved = await _ensure_user(user_id)
+    uid_int = resolved["user_id"]
     if week == "current":
         ws, we = week_boundaries()
     else:

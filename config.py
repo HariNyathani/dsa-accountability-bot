@@ -56,5 +56,11 @@ COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 # ── Frontend ─────────────────────────────────────────────────────────────
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+# ── Admin Panel ──────────────────────────────────────────────────────────
+# The Discord user ID that has access to /admin/* API endpoints and the
+# web admin panel. Stored as a string to match JWT session payload format.
+# Falls back to BOT_OWNER_ID if not explicitly set.
+ADMIN_DISCORD_ID: str = os.getenv("ADMIN_DISCORD_ID", str(BOT_OWNER_ID) if BOT_OWNER_ID else "")
+
 # ── Legacy / compat ──────────────────────────────────────────────────────
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
