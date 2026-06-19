@@ -48,6 +48,10 @@ DISCORD_CLIENT_SECRET: str = os.getenv("DISCORD_CLIENT_SECRET", "")
 DISCORD_OAUTH_REDIRECT_URI: str = os.getenv(
     "DISCORD_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/callback"
 )
+DISCORD_OAUTH_MOBILE_REDIRECT_URI: str = os.getenv(
+    "DISCORD_OAUTH_MOBILE_REDIRECT_URI",
+    DISCORD_OAUTH_REDIRECT_URI.replace("/callback", "/mobile-callback"),
+)
 
 # ── Session / JWT ────────────────────────────────────────────────────────
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-to-a-random-secret-key")

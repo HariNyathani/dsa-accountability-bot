@@ -20,7 +20,7 @@ def require_auth(request: Request) -> int:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return int(user.id)
 
-@router.post("/", response_model=LogProgressResponse)
+@router.post("", response_model=LogProgressResponse)
 async def log_progress(
     request: LogProgressRequest,
     user_id: int = Depends(require_auth)

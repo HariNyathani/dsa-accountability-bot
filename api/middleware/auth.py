@@ -1,8 +1,15 @@
 """
 JWT session utilities for Discord OAuth2 authentication.
 
-Creates and verifies stateless JWT tokens stored in HttpOnly cookies.
-Tokens contain the Discord user's id, username, and avatar hash.
+Creates and verifies stateless JWT tokens stored in HttpOnly cookies or
+passed via an Authorization Bearer header (mobile clients).
+
+Token resolution order for incoming requests:
+  1. ``dsa_session`` HttpOnly cookie  — web / browser sessions.
+  2. ``Authorization: Bearer <token>`` header — mobile app sessions.
+
+The same ``decode_session_token`` validator is used for both sources so
+all expiry, signature, and algorithm checks are applied uniformly.
 """
 
 import logging
@@ -20,6 +27,8 @@ logger = logging.getLogger("dsa_bot.api.auth")
 
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 30  # 30 days — long-lived session
+
+_BEARER_PREFIX = "Bearer "
 
 
 class SessionUser(BaseModel):
@@ -58,9 +67,34 @@ def decode_session_token(token: str) -> Optional[SessionUser]:
         return None
 
 
+def _extract_token(request: Request) -> Optional[str]:
+    """Resolve a raw JWT string from the request, checking both auth sources.
+
+    Priority:
+      1. ``dsa_session`` cookie  — set by the web OAuth callback.
+      2. ``Authorization`` header — injected by the mobile ``ApiClient``.
+
+    Returns the raw token string, or ``None`` if neither source is present.
+    """
+    # ── 1. Cookie (web sessions) ─────────────────────────────────────────
+    cookie_token = request.cookies.get("dsa_session")
+    if cookie_token:
+        return cookie_token
+
+    # ── 2. Authorization Bearer header (mobile sessions) ─────────────────
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith(_BEARER_PREFIX):
+        return auth_header[len(_BEARER_PREFIX):]
+
+    return None
+
+
 def get_current_user(request: Request) -> Optional[SessionUser]:
-    """Extract the current user from the session cookie. Returns None if unauthenticated."""
-    token = request.cookies.get("dsa_session")
+    """Extract the current user from either the session cookie or a Bearer token.
+
+    Returns ``None`` if neither source is present or the token is invalid.
+    """
+    token = _extract_token(request)
     if not token:
         return None
     return decode_session_token(token)

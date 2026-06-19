@@ -533,24 +533,39 @@ async def has_rest_today(user_id: int, log_date: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT 1 FROM progress_logs
-                    WHERE user_id = %s AND log_date = %s AND topics = 'Rest'
+                    WHERE user_id = %s AND log_date = %s
+                      AND (message_type = 'rest' OR topics = 'Rest')
                     LIMIT 1
                 """, (user_id, log_date))
-                return cur.fetchone() is not None
-    return await _run_sync(_sync)
+                row = cur.fetchone()
+                # Explicit bool conversion — never let None evaluate as truthy.
+                return row is not None
+    result = await _run_sync(_sync)
+    return bool(result) if result is not None else False
 
 
 async def get_monthly_rest_count(user_id: int, current_month: str) -> int:
+    """
+    Count rest-day entries for a given YYYY-MM month.
+
+    Uses ``log_date`` (stored as the user's local date at write time) instead
+    of ``TO_CHAR(posted_at, 'YYYY-MM')`` so that IST users submitting just
+    after UTC midnight are counted in the correct local month.
+    """
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT COUNT(*) FROM progress_logs
-                    WHERE user_id = %s AND topics = 'Rest' AND TO_CHAR(posted_at, 'YYYY-MM') = %s
+                    WHERE user_id = %s
+                      AND (message_type = 'rest' OR topics = 'Rest')
+                      AND LEFT(log_date::text, 7) = %s
                 """, (user_id, current_month))
                 row = cur.fetchone()
-                return int(row[0]) if row else 0
-    return await _run_sync(_sync)
+                # Guard: return 0 on empty result set rather than raising.
+                return int(row[0]) if row and row[0] is not None else 0
+    result = await _run_sync(_sync)
+    return result if result is not None else 0
 
 
 # ── Admin Suite ──────────────────────────────────────────────────────────────
