@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../../core/widgets/glass_card.dart';
 import '../../../../../core/widgets/skeleton_card.dart';
 import '../../../../profile/presentation/providers/user_profile_provider.dart';
 import '../../providers/leaderboard_provider.dart';
@@ -42,6 +43,7 @@ class _DashboardTabState extends State<DashboardTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDarkMode = theme.brightness == Brightness.dark;
 
     // Read the user's claimed vanity handle / Discord username so the greeting
     // shows a real name. UserProfileProvider is registered in MainShell's inner
@@ -69,28 +71,42 @@ class _DashboardTabState extends State<DashboardTab> {
             color: colorScheme.primary,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // ── Welcome header ──────────────────────────────────────
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      stats != null && stats.postedToday
-                          ? 'You\'re on fire! 🔥'
-                          : '$timeGreeting, $displayName! 👋',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          stats != null && stats.postedToday
+                              ? 'You\'re on fire! 🔥'
+                              : '$timeGreeting, $displayName! 👋',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            color: isDarkMode ? Colors.white : colorScheme.primary,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Your daily accountability digest',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
 
                   // ── Error banner ────────────────────────────────────────
                   if (error != null && !isLoading) ...[
-                    Card(
+                    GlassCard(
                       child: Padding(
                         padding: const EdgeInsets.all(20),
                         child: Row(
@@ -116,9 +132,9 @@ class _DashboardTabState extends State<DashboardTab> {
                   // ── Current Streak ──────────────────────────────────────
                   _sectionLabel(theme, 'Current Streak'),
                   const SizedBox(height: 12),
-                  Card(
+                  GlassCard(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(18),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -156,21 +172,22 @@ class _DashboardTabState extends State<DashboardTab> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            '${stats.currentStreak} days',
-                                            style: theme
-                                                .textTheme.titleLarge
-                                                ?.copyWith(
-                                              fontWeight: FontWeight.w800,
+                                            '${stats.currentStreak}',
+                                            style: theme.textTheme.displayMedium?.copyWith(
+                                              fontSize: 30,
+                                              fontWeight: FontWeight.w900,
+                                              color: isDarkMode ? Colors.white : colorScheme.primary,
+                                              height: 1.1,
                                             ),
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            'Best: ${stats.longestStreak} days',
-                                            style: theme
-                                                .textTheme.bodySmall
-                                                ?.copyWith(
-                                              color: colorScheme
-                                                  .onSurfaceVariant,
+                                            'BEST STREAK: ${stats.longestStreak}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1.2,
+                                              color: (isDarkMode ? Colors.white : colorScheme.primary).withValues(alpha: 0.6),
                                             ),
                                           ),
                                         ],
@@ -179,7 +196,7 @@ class _DashboardTabState extends State<DashboardTab> {
                             ],
                           ),
                           const SizedBox(height: 18),
-                          Divider(color: colorScheme.outline),
+                          Divider(color: colorScheme.primary.withValues(alpha: 0.1), thickness: 0.5),
                           const SizedBox(height: 14),
                           isLoading || stats == null
                               ? const SkeletonLine(width: 180, height: 12)
@@ -241,10 +258,10 @@ class _DashboardTabState extends State<DashboardTab> {
                   // ── Recent Activity ─────────────────────────────────────
                   _sectionLabel(theme, 'Recent Activity'),
                   const SizedBox(height: 12),
-                  Card(
+                  GlassCard(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
+                        horizontal: 16,
                         vertical: 8,
                       ),
                       child: isLoading
@@ -281,6 +298,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                 ),
                     ),
                   ),
+                  const SizedBox(height: 112.0), // High-fidelity clearance spacer for floating nav block
                 ],
               ),
             ),
@@ -301,11 +319,14 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   static Widget _sectionLabel(ThemeData theme, String text) {
+    final isDark = theme.brightness == Brightness.dark;
     return Text(
-      text,
-      style: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.3,
+      text.toUpperCase(),
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 1.6,
+        color: (isDark ? Colors.white : theme.colorScheme.primary).withValues(alpha: 0.6),
       ),
     );
   }
@@ -333,7 +354,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ],
           ),
         ),
-        if (index < 2) Divider(height: 0, color: colorScheme.outline),
+        if (index < 2) Divider(height: 0, color: colorScheme.primary.withValues(alpha: 0.1), thickness: 0.5),
       ],
     );
   }
@@ -468,7 +489,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ],
           ),
         ),
-        if (!isLast) Divider(height: 0, color: colorScheme.outline),
+        if (!isLast) Divider(height: 0, color: colorScheme.primary.withValues(alpha: 0.1), thickness: 0.5),
       ],
     );
   }
@@ -516,7 +537,7 @@ class _LeaderboardGatewayCard extends StatelessWidget {
           }
         }
 
-        return Card(
+        return GlassCard(
           child: InkWell(
             borderRadius: BorderRadius.circular(24),
             onTap: () {
@@ -528,7 +549,7 @@ class _LeaderboardGatewayCard extends StatelessWidget {
               );
             },
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   Container(
@@ -604,27 +625,34 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final isDark = theme.brightness == Brightness.dark;
+    return GlassCard(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon, color: colorScheme.primary, size: 20),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             isLoading || value == null
-                ? const SkeletonLine(width: 56, height: 22)
+                ? const SkeletonLine(width: 56, height: 28)
                 : Text(
                     value!,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                    style: theme.textTheme.displayMedium?.copyWith(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: isDark ? Colors.white : colorScheme.primary,
+                      height: 1.1,
                     ),
                   ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.6,
+                color: (isDark ? Colors.white : colorScheme.primary).withValues(alpha: 0.6),
               ),
             ),
           ],
@@ -633,3 +661,5 @@ class _StatCard extends StatelessWidget {
     );
   }
 }
+
+

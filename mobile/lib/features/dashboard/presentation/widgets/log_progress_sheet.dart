@@ -1,9 +1,11 @@
+import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/services/haptic_service.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/spring_curve.dart';
 import '../../data/models/user_stats.dart';
 import '../providers/progress_provider.dart';
 
@@ -67,7 +69,6 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
   ];
 
   // ── Available platforms & difficulties ─────────────────────────────────
-  static const _platforms = <String>['LeetCode', 'Codeforces'];
   static const _difficulties = <String>['Easy', 'Medium', 'Hard'];
   static const _difficultyColors = <String, Color>{
     'Easy': Color(0xFF4CAF50),
@@ -278,24 +279,50 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    // Sheet backdrop color — uses scaffold token (cream / pure black).
-    final sheetColor = isDark
-        ? const Color(0xFF121212)
-        : const Color(0xFFFDFBF7);
+
 
     return Padding(
       // Push above the keyboard when it's visible.
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: sheetColor,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppTheme.cardRadius), // 24 dp
-          ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppTheme.cardRadius), // 24 dp
         ),
-        child: SafeArea(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: isDark
+                    ? [
+                        Colors.white.withValues(alpha: 0.05),
+                        Colors.white.withValues(alpha: 0.01),
+                      ]
+                    : [
+                        Colors.white.withValues(alpha: 0.45),
+                        Colors.white.withValues(alpha: 0.15),
+                      ],
+              ),
+              border: Border(
+                top: BorderSide(
+                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                  width: 1.0,
+                ),
+                left: BorderSide(
+                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                  width: 1.0,
+                ),
+                right: BorderSide(
+                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                  width: 1.0,
+                ),
+              ),
+            ),
+            child: SafeArea(
           top: false,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
@@ -360,33 +387,145 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
           ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 
   // ── Intent toggle ─────────────────────────────────────────────────────
 
   Widget _buildIntentToggle(ThemeData theme, ColorScheme colorScheme) {
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<bool>(
-        segments: const [
-          ButtonSegment<bool>(
-            value: false,
-            icon: Icon(Icons.code_rounded, size: 18),
-            label: Text('Solve'),
+    final isDark = theme.brightness == Brightness.dark;
+    final alignment = _isRestDay ? const Alignment(1.0, 0.0) : const Alignment(-1.0, 0.0);
+
+    return Container(
+      height: 44.0,
+      decoration: BoxDecoration(
+        color: colorScheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14.0),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14.0),
+        child: Stack(
+          children: [
+            AnimatedAlign(
+              alignment: alignment,
+              duration: const Duration(milliseconds: 350),
+              curve: SpringCurve.snap,
+              child: FractionallySizedBox(
+                widthFactor: 0.48,
+                heightFactor: 1.0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: isDark
+                        ? const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0x23FFFFFF), // ~0.14 alpha — obsidian specular highlight
+                              Color(0x05FFFFFF), // ~0.02 alpha — feather fade to AMOLED black
+                            ],
+                          )
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(alpha: 0.60),
+                              Colors.white.withValues(alpha: 0.25),
+                            ],
+                          ),
+                    borderRadius: BorderRadius.circular(14.0),
+                    border: isDark
+                        ? Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 1.0,
+                          )
+                        : Border.all(
+                            color: Colors.white.withValues(alpha: 0.65),
+                            width: 0.8,
+                          ),
+                    boxShadow: isDark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                  ),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                _buildToggleSegment(
+                  icon: Icons.code_rounded,
+                  label: 'Solve',
+                  isSelected: !_isRestDay,
+                  onTap: () {
+                    if (_isRestDay) {
+                      HapticService.lightTap();
+                      setState(() => _isRestDay = false);
+                    }
+                  },
+                  theme: theme,
+                ),
+                _buildToggleSegment(
+                  icon: Icons.bedtime_rounded,
+                  label: 'Rest Day',
+                  isSelected: _isRestDay,
+                  onTap: () {
+                    if (!_isRestDay) {
+                      HapticService.lightTap();
+                      setState(() => _isRestDay = true);
+                    }
+                  },
+                  theme: theme,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToggleSegment({
+    IconData? icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required ThemeData theme,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 18,
+                  color: theme.colorScheme.onSurface.withValues(alpha: isSelected ? 1.0 : 0.65),
+                ),
+                const SizedBox(width: 6),
+              ],
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 350),
+                curve: SpringCurve.snap,
+                style: theme.textTheme.labelMedium!.copyWith(
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                  color: theme.colorScheme.onSurface.withValues(alpha: isSelected ? 1.0 : 0.65),
+                ),
+                child: Text(label),
+              ),
+            ],
           ),
-          ButtonSegment<bool>(
-            value: true,
-            icon: Icon(Icons.bedtime_rounded, size: 18),
-            label: Text('Rest Day'),
-          ),
-        ],
-        selected: {_isRestDay},
-        onSelectionChanged: (selected) {
-          HapticService.lightTap();
-          setState(() => _isRestDay = selected.first);
-        },
-        style: _segmentedButtonStyle(colorScheme),
+        ),
       ),
     );
   }
@@ -399,27 +538,95 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
       mainAxisSize: MainAxisSize.min,
       children: [
         // ── Log mode toggle (Platform Log / Manual Log) ───────────────
-        SizedBox(
-          width: double.infinity,
-          child: SegmentedButton<_LogMode>(
-            segments: const [
-              ButtonSegment<_LogMode>(
-                value: _LogMode.platform,
-                icon: Icon(Icons.link_rounded, size: 18),
-                label: Text('Platform Log'),
-              ),
-              ButtonSegment<_LogMode>(
-                value: _LogMode.manual,
-                icon: Icon(Icons.edit_note_rounded, size: 18),
-                label: Text('Manual Log'),
-              ),
-            ],
-            selected: {_logMode},
-            onSelectionChanged: (selected) {
-              HapticService.lightTap();
-              setState(() => _logMode = selected.first);
-            },
-            style: _segmentedButtonStyle(colorScheme),
+        Container(
+          height: 44.0,
+          decoration: BoxDecoration(
+            color: colorScheme.onSurface.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(14.0),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14.0),
+            child: Stack(
+              children: [
+                AnimatedAlign(
+                  alignment: _logMode == _LogMode.platform ? const Alignment(-1.0, 0.0) : const Alignment(1.0, 0.0),
+                  duration: const Duration(milliseconds: 350),
+                  curve: SpringCurve.snap,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.48,
+                    heightFactor: 1.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: theme.brightness == Brightness.dark
+                            ? const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color(0x23FFFFFF), // ~0.14 alpha — obsidian specular highlight
+                                  Color(0x05FFFFFF), // ~0.02 alpha — feather fade to AMOLED black
+                                ],
+                              )
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.60),
+                                  Colors.white.withValues(alpha: 0.25),
+                                ],
+                              ),
+                        borderRadius: BorderRadius.circular(14.0),
+                        border: theme.brightness == Brightness.dark
+                            ? Border.all(
+                                color: Colors.white.withValues(alpha: 0.15),
+                                width: 1.0,
+                              )
+                            : Border.all(
+                                color: Colors.white.withValues(alpha: 0.65),
+                                width: 0.8,
+                              ),
+                        boxShadow: theme.brightness == Brightness.dark
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                      ),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    _buildToggleSegment(
+                      icon: Icons.link_rounded,
+                      label: 'Platform Log',
+                      isSelected: _logMode == _LogMode.platform,
+                      onTap: () {
+                        if (_logMode != _LogMode.platform) {
+                          HapticService.lightTap();
+                          setState(() => _logMode = _LogMode.platform);
+                        }
+                      },
+                      theme: theme,
+                    ),
+                    _buildToggleSegment(
+                      icon: Icons.edit_note_rounded,
+                      label: 'Manual Log',
+                      isSelected: _logMode == _LogMode.manual,
+                      onTap: () {
+                        if (_logMode != _LogMode.manual) {
+                          HapticService.lightTap();
+                          setState(() => _logMode = _LogMode.manual);
+                        }
+                      },
+                      theme: theme,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 20),
@@ -545,39 +752,74 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
             );
           },
           optionsViewBuilder: (context, onSelected, options) {
+            final isDark = theme.brightness == Brightness.dark;
             return Align(
               alignment: Alignment.topLeft,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12),
-                color: theme.colorScheme.surface,
-                surfaceTintColor: theme.colorScheme.surfaceTint,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 180),
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (context, index) {
-                      final option = options.elementAt(index);
-                      final isHighlighted =
-                          option == _selectedTopic;
-                      return ListTile(
-                        dense: true,
-                        title: Text(
-                          option,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: isHighlighted
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: isHighlighted
-                                ? colorScheme.primary
-                                : null,
-                          ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16.0),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16.0),
+                      gradient: isDark
+                          ? const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0x0DFFFFFF), // 0.05
+                                Color(0x02FFFFFF), // 0.01
+                              ],
+                            )
+                          : LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white.withValues(alpha: 0.50),
+                                Colors.white.withValues(alpha: 0.20),
+                              ],
+                            ),
+                      border: isDark
+                          ? Border.all(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              width: 0.8,
+                            )
+                          : Border.all(
+                              color: Colors.white.withValues(alpha: 0.50),
+                              width: 0.8,
+                            ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: options.length,
+                          itemBuilder: (context, index) {
+                            final option = options.elementAt(index);
+                            final isHighlighted =
+                                option == _selectedTopic;
+                            return ListTile(
+                              dense: true,
+                              title: Text(
+                                option,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: isHighlighted
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                  color: isHighlighted
+                                      ? colorScheme.primary
+                                      : theme.colorScheme.onSurface.withValues(alpha: 0.65),
+                                ),
+                              ),
+                              onTap: () => onSelected(option),
+                            );
+                          },
                         ),
-                        onTap: () => onSelected(option),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -799,84 +1041,90 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
 
   /// Builds the platform selection chip row (LeetCode, Codeforces).
   Widget _buildPlatformChips(ThemeData theme, ColorScheme colorScheme) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: _platforms.map((platform) {
-        final isSelected = platform == _selectedPlatform;
-        return GestureDetector(
-          onTap: () {
-            HapticService.lightTap();
-            setState(() {
-              _selectedPlatform =
-                  _selectedPlatform == platform ? null : platform;
-            });
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? colorScheme.primary
-                  : colorScheme.onSurface.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected
-                    ? colorScheme.primary
-                    : colorScheme.outline,
-                width: isSelected ? 1.5 : 0.5,
+    _selectedPlatform ??= 'LeetCode';
+    
+    return Container(
+      height: 44.0,
+      decoration: BoxDecoration(
+        color: colorScheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14.0),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14.0),
+        child: Stack(
+          children: [
+            AnimatedAlign(
+              alignment: _selectedPlatform == 'Codeforces' ? const Alignment(1.0, 0.0) : const Alignment(-1.0, 0.0),
+              duration: const Duration(milliseconds: 350),
+              curve: SpringCurve.snap,
+              child: FractionallySizedBox(
+                widthFactor: 0.48,
+                heightFactor: 1.0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: theme.brightness == Brightness.dark ? Colors.transparent : null,
+                    gradient: theme.brightness == Brightness.dark
+                        ? null
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(alpha: 0.60),
+                              Colors.white.withValues(alpha: 0.25),
+                            ],
+                          ),
+                    borderRadius: BorderRadius.circular(14.0),
+                    border: theme.brightness == Brightness.dark
+                        ? Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 1.0,
+                          )
+                        : Border.all(
+                            color: Colors.white.withValues(alpha: 0.65),
+                            width: 0.8,
+                          ),
+                    boxShadow: theme.brightness == Brightness.dark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                  ),
+                ),
               ),
             ),
-            child: Text(
-              platform,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: isSelected
-                    ? colorScheme.onPrimary
-                    : colorScheme.onSurface,
-                fontWeight:
-                    isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
+            Row(
+              children: [
+                _buildToggleSegment(
+                  label: 'LeetCode',
+                  isSelected: _selectedPlatform == 'LeetCode',
+                  onTap: () {
+                    HapticService.lightTap();
+                    setState(() => _selectedPlatform = 'LeetCode');
+                  },
+                  theme: theme,
+                ),
+                _buildToggleSegment(
+                  label: 'Codeforces',
+                  isSelected: _selectedPlatform == 'Codeforces',
+                  onTap: () {
+                    HapticService.lightTap();
+                    setState(() => _selectedPlatform = 'Codeforces');
+                  },
+                  theme: theme,
+                ),
+              ],
             ),
-          ),
-        );
-      }).toList(),
+          ],
+        ),
+      ),
     );
   }
 
-  /// Shared `ButtonStyle` for the segmented toggles (Solve/Rest Day,
-  /// Platform Log/Manual Log).
-  ButtonStyle _segmentedButtonStyle(ColorScheme colorScheme) {
-    return ButtonStyle(
-      minimumSize: WidgetStateProperty.all(
-        const Size(double.infinity, 44),
-      ),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      backgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) {
-          return colorScheme.primary;
-        }
-        return Colors.transparent;
-      }),
-      foregroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) {
-          return colorScheme.onPrimary;
-        }
-        return colorScheme.onSurfaceVariant;
-      }),
-      shape: WidgetStateProperty.all(
-        RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      side: WidgetStateProperty.all(
-        BorderSide(color: colorScheme.outline, width: 0.5),
-      ),
-    );
-  }
+
 
   // ── Shared Submit CTA ─────────────────────────────────────────────────
 
@@ -886,15 +1134,40 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
     required bool isEnabled,
     required String label,
   }) {
-    return SizedBox(
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
       width: double.infinity,
       height: 52,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppTheme.buttonRadius),
+        color: !isEnabled
+            ? colorScheme.onSurface.withValues(alpha: 0.08)
+            : (isDark ? Colors.transparent : null),
+        gradient: isEnabled && !isDark
+            ? const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFF9E6F4A),
+                  Color(0xFF7A5234),
+                ],
+              )
+            : null,
+        border: isEnabled
+            ? (isDark
+                ? Border.all(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    width: 1.0,
+                  )
+                : Border.all(
+                    color: Colors.white.withValues(alpha: 0.40),
+                    width: 0.8,
+                  ))
+            : null,
+      ),
       child: Material(
-        color: isEnabled
-            ? colorScheme.primary
-            : colorScheme.onSurface.withValues(alpha: 0.08),
-        borderRadius:
-            BorderRadius.circular(AppTheme.buttonRadius), // 16 dp
+        color: Colors.transparent,
         child: InkWell(
           onTap: isEnabled && _phase == _SubmitPhase.idle
               ? _submit

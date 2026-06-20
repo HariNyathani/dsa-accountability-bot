@@ -15,21 +15,21 @@ final class AppTheme {
   // ---------------------------------------------------------------------------
   // ☀️  LIGHT MODE PALETTE
   // ---------------------------------------------------------------------------
-  static const Color _lightScaffold     = Color(0xFFFDFBF7); // Alabaster cream
-  static const Color _lightSurface      = Color(0xFFF5F2EB); // Warm biscuit
-  static const Color _lightPrimary      = Color(0xFF2E6F40); // Deep muted jade
+  static const Color _lightScaffold     = Color(0xFFF2E2DE); // Ultra-light Alabaster Porcelain Beige
+  static const Color _lightSurface      = Color(0xFFF2E2DE); // Ultra-light Alabaster Porcelain Beige
+  static const Color _lightPrimary      = Color(0xFF7A5234); // Deep Chestnut Espresso
   static const Color _lightOnPrimary    = Color(0xFFFFFFFF);
-  static const Color _lightTextPrimary  = Color(0xFF1C1A17); // Rich charcoal
+  static const Color _lightTextPrimary  = Color(0xFF3E2723); // Deep rich brown
   static const Color _lightTextSecondary = Color(0xFF706A60); // Stone gray
   static const Color _lightBorder       = Color(0x1A1C1A17); // ~10 % opacity
 
   // ---------------------------------------------------------------------------
   // 🌙  DARK MODE PALETTE
   // ---------------------------------------------------------------------------
-  static const Color _darkScaffold      = Color(0xFF000000); // Pure black
-  static const Color _darkSurface       = Color(0xFF121212); // Dark graphite
-  static const Color _darkPrimary       = Color(0xFF39FF14); // Neon green
-  static const Color _darkOnPrimary     = Color(0xFF003A00);
+  static const Color _darkScaffold      = Color(0xFF0A0B10); // Deep obsidian
+  static const Color _darkSurface       = Color(0xFF0D0D12); // Dark charcoal
+  static const Color _darkPrimary       = Color(0xFF7A5234); // Deep Chestnut Espresso
+  static const Color _darkOnPrimary     = Color(0xFFFFFFFF);
   static const Color _darkTextPrimary   = Color(0xFFFFFFFF);
   static const Color _darkTextSecondary = Color(0xFF9E9E9E); // Slate gray
   static const Color _darkBorder        = Color(0x1AFFFFFF); // ~10 % opacity
@@ -37,8 +37,8 @@ final class AppTheme {
   // ---------------------------------------------------------------------------
   // 📐  GEOMETRY TOKENS
   // ---------------------------------------------------------------------------
-  static const double cardRadius   = 24.0;
-  static const double buttonRadius = 16.0;
+  static const double cardRadius   = 32.0;
+  static const double buttonRadius = 24.0;
   static const double borderWidth  = 0.5;
 
   // ---------------------------------------------------------------------------
@@ -180,19 +180,20 @@ final class AppTheme {
         onSurface: _darkTextPrimary,
         onSurfaceVariant: _darkTextSecondary,
         outline: _darkBorder,
-        outlineVariant: _darkBorder,
+        outlineVariant: Colors.white.withValues(alpha: 0.08),
         error: const Color(0xFFFFB4AB),
         onError: const Color(0xFF690005),
       ),
       textTheme: textTheme,
       cardTheme: CardThemeData(
         color: _darkSurface,
-        elevation: 0,
+        elevation: 16,
+        shadowColor: Colors.white.withValues(alpha: 0.04),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(cardRadius),
-          side: const BorderSide(
-            color: _darkBorder,
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: 0.08),
             width: borderWidth,
           ),
         ),
@@ -202,7 +203,8 @@ final class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: _darkPrimary,
           foregroundColor: _darkOnPrimary,
-          elevation: 0,
+          elevation: 12,
+          shadowColor: _darkPrimary.withValues(alpha: 0.15),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(buttonRadius),

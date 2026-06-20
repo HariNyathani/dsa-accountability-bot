@@ -1,5 +1,9 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import 'package:mobile/core/widgets/spring_curve.dart';
 
 import '../../../../core/services/haptic_service.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -56,43 +60,114 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             // ── Sort chips ───────────────────────────────────────────────
             Consumer<LeaderboardProvider>(
               builder: (context, provider, _) {
+                final isDark = theme.brightness == Brightness.dark;
+                final keys = _sortOptions.keys.toList();
+                final values = _sortOptions.values.toList();
+                final selectedIndex = values.indexOf(provider.sortBy).clamp(0, 3);
+                
+                final alignmentX = switch (selectedIndex) {
+                  0 => -1.0,
+                  1 => -0.33,
+                  2 => 0.33,
+                  3 => 1.0,
+                  _ => -1.0,
+                };
+                final alignment = Alignment(alignmentX, 0.0);
+
                 return Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  child: Row(
-                    children: _sortOptions.entries.map((entry) {
-                      final isSelected = provider.sortBy == entry.value;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: Text(entry.key),
-                          selected: isSelected,
-                          onSelected: (_) =>
-                              provider.setSortBy(entry.value),
-                          selectedColor: colorScheme.primary,
-                          checkmarkColor: colorScheme.onPrimary,
-                          labelStyle: theme.textTheme.labelMedium?.copyWith(
-                            color: isSelected
-                                ? colorScheme.onPrimary
-                                : colorScheme.onSurface,
-                            fontWeight: FontWeight.w600,
+                  child: Container(
+                    height: 46.0,
+                    decoration: BoxDecoration(
+                      color: colorScheme.onSurface.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(16.0),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16.0),
+                      child: Stack(
+                        children: [
+                          AnimatedAlign(
+                            alignment: alignment,
+                            duration: const Duration(milliseconds: 350),
+                            curve: SpringCurve.snap,
+                            child: FractionallySizedBox(
+                              widthFactor: 0.24,
+                              heightFactor: 1.0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: isDark
+                                      ? const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Color(0x23FFFFFF), // ~0.14 alpha — obsidian specular highlight
+                                            Color(0x05FFFFFF), // ~0.02 alpha — feather fade to AMOLED black
+                                          ],
+                                        )
+                                      : LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Colors.white.withValues(alpha: 0.60),
+                                            Colors.white.withValues(alpha: 0.25),
+                                          ],
+                                        ),
+                                  borderRadius: BorderRadius.circular(16.0),
+                                  border: isDark
+                                      ? Border.all(
+                                          color: Colors.white.withValues(alpha: 0.15),
+                                          width: 1.0,
+                                        )
+                                      : Border.all(
+                                          color: Colors.white.withValues(alpha: 0.65),
+                                          width: 0.8,
+                                        ),
+                                  boxShadow: isDark
+                                      ? null
+                                      : [
+                                          BoxShadow(
+                                            color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                                            blurRadius: 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                ),
+                              ),
+                            ),
                           ),
-                          backgroundColor: colorScheme.surface,
-                          side: BorderSide(
-                            color: isSelected
-                                ? colorScheme.primary
-                                : colorScheme.outline,
-                            width: 0.5,
+                          Row(
+                            children: List.generate(4, (index) {
+                              final isSelected = index == selectedIndex;
+                              final key = keys[index];
+                              final val = values[index];
+                              return Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    if (!isSelected) {
+                                      HapticService.lightTap();
+                                      provider.setSortBy(val);
+                                    }
+                                  },
+                                  child: Center(
+                                    child: AnimatedDefaultTextStyle(
+                                      duration: const Duration(milliseconds: 350),
+                                      curve: SpringCurve.snap,
+                                      style: theme.textTheme.labelMedium!.copyWith(
+                                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                                        color: theme.colorScheme.onSurface.withValues(alpha: isSelected ? 1.0 : 0.65),
+                                      ),
+                                      child: Text(key),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          showCheckmark: false,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 2),
-                        ),
-                      );
-                    }).toList(),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
@@ -235,23 +310,59 @@ class _LeaderboardRow extends StatelessWidget {
         ? colorScheme.primary.withValues(alpha: 0.06)
         : _rankTint(entry.rank);
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Card(
-        color: cardColor,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppTheme.cardRadius), // 24 dp
-          onTap: () {
-            HapticService.lightTap();
-            if (isCurrentUser) {
-              _showCurrentUserSnack(context);
-            } else {
-              _showProfileSheet(context, entry);
-            }
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: isDark
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0x0DFFFFFF), // 0.05
+                        Color(0x02FFFFFF), // 0.01
+                      ],
+                    )
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.45),
+                        Colors.white.withValues(alpha: 0.15),
+                      ],
+                    ),
+              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+              border: isDark
+                  ? Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1.0,
+                    )
+                  : Border.all(
+                      color: Colors.white.withValues(alpha: 0.50),
+                      width: 1.0,
+                    ),
+            ),
+            child: Material(
+              color: cardColor ?? Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppTheme.cardRadius), // 24 dp
+                onTap: () {
+                  HapticService.lightTap();
+                  if (isCurrentUser) {
+                    _showCurrentUserSnack(context);
+                  } else {
+                    _showProfileSheet(context, entry);
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Row(
               children: [
                 // Rank badge.
                 SizedBox(
@@ -333,7 +444,7 @@ class _LeaderboardRow extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ))));
   }
 
   // ── Rank tint for top 3 ─────────────────────────────────────────────────
@@ -442,17 +553,67 @@ class _UserProfileSheet extends StatelessWidget {
       _ => '#${entry.rank}',
     };
 
-    return Container(
-      decoration: BoxDecoration(
-        color: sheetColor,
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: ClipRRect(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(AppTheme.cardRadius), // 24 dp
         ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: isDark
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0x23FFFFFF), // ~0.14 alpha — obsidian specular highlight
+                        Color(0x05FFFFFF), // ~0.02 alpha — feather fade to AMOLED black
+                      ],
+                    )
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.60),
+                        Colors.white.withValues(alpha: 0.25),
+                      ],
+                    ),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppTheme.cardRadius), // 24 dp
+              ),
+              border: isDark
+                  ? Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        width: 1.0,
+                      ),
+                    )
+                  : Border(
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.65),
+                        width: 0.8,
+                      ),
+                    ),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -568,7 +729,7 @@ class _UserProfileSheet extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ))));
   }
 
   Widget _statColumn(String label, String value) {

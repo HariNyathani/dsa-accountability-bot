@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../../core/widgets/glass_card.dart';
 import '../../../../../core/widgets/skeleton_card.dart';
 import '../../../../dashboard/presentation/providers/progress_provider.dart';
 import '../../widgets/difficulty_breakdown.dart';
@@ -30,7 +31,7 @@ class AnalyticsTab extends StatelessWidget {
             color: colorScheme.primary,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -52,9 +53,9 @@ class AnalyticsTab extends StatelessWidget {
                   const SizedBox(height: 28),
 
                   // ── Monthly Activity Heatmap ────────────────────────────
-                  Card(
+                  GlassCard(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(28),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -82,7 +83,8 @@ class AnalyticsTab extends StatelessWidget {
                                     'Monthly Activity',
                                     style: theme.textTheme.titleMedium
                                         ?.copyWith(
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.5,
                                     ),
                                   ),
                                   const SizedBox(height: 2),
@@ -202,6 +204,7 @@ class AnalyticsTab extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 112.0), // Ensures complex charts can roll entirely clear of the dock
                 ],
               ),
             ),
@@ -211,3 +214,5 @@ class AnalyticsTab extends StatelessWidget {
     );
   }
 }
+
+

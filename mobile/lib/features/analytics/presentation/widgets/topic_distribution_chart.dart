@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/widgets/glass_card.dart';
 import '../../../../core/widgets/skeleton_card.dart';
 import '../../../dashboard/data/models/user_stats.dart';
 
@@ -59,9 +60,9 @@ class _TopicDistributionChartState extends State<TopicDistributionChart> {
     final topics = widget.topics;
     final isLoading = widget.isLoading;
 
-    return Card(
+    return GlassCard(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -87,7 +88,8 @@ class _TopicDistributionChartState extends State<TopicDistributionChart> {
                     Text(
                       'Topic Distribution',
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -339,3 +341,5 @@ class _DottedLinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DottedLinePainter old) => color != old.color;
 }
+
+

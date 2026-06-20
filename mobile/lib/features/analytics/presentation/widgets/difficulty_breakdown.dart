@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/widgets/glass_card.dart';
 import '../../../../core/widgets/skeleton_card.dart';
 import '../../../dashboard/data/models/user_stats.dart';
 
@@ -26,9 +27,9 @@ class DifficultyBreakdown extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Card(
+    return GlassCard(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -51,7 +52,8 @@ class DifficultyBreakdown extends StatelessWidget {
                 Text(
                   'Difficulty Breakdown',
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],
@@ -248,3 +250,5 @@ class _MetricColumn extends StatelessWidget {
     );
   }
 }
+
+

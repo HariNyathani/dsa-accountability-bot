@@ -1,12 +1,16 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mobile/core/theme/theme_provider.dart';
+import 'package:mobile/core/widgets/glass_card.dart';
 import 'package:mobile/core/widgets/skeleton_card.dart';
+import 'package:mobile/core/widgets/spring_curve.dart';
 import 'package:mobile/features/auth/presentation/providers/auth_provider.dart';
 import 'package:mobile/features/dashboard/presentation/providers/progress_provider.dart';
 import 'package:mobile/features/profile/presentation/providers/user_profile_provider.dart';
+import 'package:mobile/core/services/haptic_service.dart';
 
 /// Profile tab — user identity, vanity stats, linked platforms,
 /// preferences, and account management.
@@ -74,11 +78,11 @@ class _ProfileTabState extends State<ProfileTab> {
                 ),
               ),
             ],
-            const SizedBox(height: 28),
+            const SizedBox(height: 40),
 
             // ── 2. Vanity Stats Triptych ────────────────────────────────
             _buildVanityStats(theme, colorScheme, profile),
-            const SizedBox(height: 32),
+            const SizedBox(height: 40),
 
 
             // ── 4. Preferences ──────────────────────────────────────────
@@ -102,6 +106,7 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
             ),
             const SizedBox(height: 32),
+            const SizedBox(height: 112.0), // High-fidelity bottom dock cushion
           ],
         ),
       ),
@@ -157,7 +162,7 @@ class _ProfileTabState extends State<ProfileTab> {
         final stats = provider.stats;
         final isLoading = provider.isLoading;
 
-        return Card(
+        return GlassCard(
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 8,
@@ -209,7 +214,7 @@ class _ProfileTabState extends State<ProfileTab> {
     ColorScheme colorScheme,
     UserProfileProvider profile,
   ) {
-    return Card(
+    return GlassCard(
       child: Column(
         children: [
           // Timezone row.
@@ -284,6 +289,8 @@ class _ProfileTabState extends State<ProfileTab> {
                           keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
                             hintText: 'your@email.com',
+                            filled: true,
+                            fillColor: colorScheme.onSurface.withValues(alpha: 0.05),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide:
@@ -309,21 +316,56 @@ class _ProfileTabState extends State<ProfileTab> {
                           },
                         ),
                         const SizedBox(height: 10),
-                        FilledButton(
-                          onPressed: () {
-                            final email = _emailController.text.trim();
-                            if (email.isNotEmpty) {
-                              profile.updateEmail(email);
-                              FocusScope.of(context).unfocus();
-                            }
-                          },
-                          style: FilledButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: theme.brightness == Brightness.dark ? Colors.transparent : null,
+                            gradient: theme.brightness == Brightness.dark
+                                ? null
+                                : const LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Color(0xFF9E6F4A),
+                                      Color(0xFF7A5234),
+                                    ],
+                                  ),
+                            border: theme.brightness == Brightness.dark
+                                ? Border.all(
+                                    color: Colors.white.withValues(alpha: 0.15),
+                                    width: 1.0,
+                                  )
+                                : Border.all(
+                                    color: Colors.white.withValues(alpha: 0.40),
+                                    width: 0.8,
+                                  ),
                           ),
-                          child: const Text('Save Email'),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                final email = _emailController.text.trim();
+                                if (email.isNotEmpty) {
+                                  profile.updateEmail(email);
+                                  FocusScope.of(context).unfocus();
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                child: Center(
+                                  child: Text(
+                                    'Save Email',
+                                    style: theme.textTheme.labelLarge?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -368,49 +410,108 @@ class _ProfileTabState extends State<ProfileTab> {
 
   Widget _buildThemeSelector(ThemeData theme, ColorScheme colorScheme) {
     final currentMode = context.watch<ThemeProvider>().themeMode;
+    final isDark = theme.brightness == Brightness.dark;
 
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<ThemeMode>(
-        segments: const [
-          ButtonSegment(
-            value: ThemeMode.light,
-            label: Text('Light'),
-          ),
-          ButtonSegment(
-            value: ThemeMode.dark,
-            label: Text('Dark'),
-          ),
-          ButtonSegment(
-            value: ThemeMode.system,
-            label: Text('System'),
-          ),
-        ],
-        selected: {currentMode},
-        showSelectedIcon: false,
-        onSelectionChanged: (modes) {
-          context.read<ThemeProvider>().setThemeMode(modes.first);
-        },
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return colorScheme.primary;
-            }
-            return colorScheme.surface;
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return colorScheme.onPrimary;
-            }
-            return colorScheme.onSurface;
-          }),
-          shape: WidgetStateProperty.all(
-            RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+    final Alignment alignment = switch (currentMode) {
+      ThemeMode.light => const Alignment(-1.0, 0.0),
+      ThemeMode.system => const Alignment(1.0, 0.0),
+      ThemeMode.dark => const Alignment(0.0, 0.0),
+    };
+
+    return Container(
+      height: 48.0,
+      decoration: BoxDecoration(
+        color: colorScheme.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16.0),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16.0),
+        child: Stack(
+          children: [
+            // Sliding Capsule Engine
+            AnimatedAlign(
+              alignment: alignment,
+              duration: const Duration(milliseconds: 350),
+              curve: SpringCurve.snap,
+              child: FractionallySizedBox(
+                widthFactor: 0.3333,
+                heightFactor: 1.0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: isDark
+                        ? const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0x23FFFFFF), // ~0.14 alpha — obsidian specular highlight
+                              Color(0x05FFFFFF), // ~0.02 alpha — feather fade to AMOLED black
+                            ],
+                          )
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(alpha: 0.60),
+                              Colors.white.withValues(alpha: 0.25),
+                            ],
+                          ),
+                    borderRadius: BorderRadius.circular(16.0),
+                    border: isDark
+                        ? Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 1.0,
+                          )
+                        : Border.all(
+                            color: Colors.white.withValues(alpha: 0.65),
+                            width: 0.8,
+                          ),
+                    boxShadow: isDark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                  ),
+                ),
+              ),
             ),
-          ),
-          side: WidgetStateProperty.all(
-            BorderSide(color: colorScheme.outline, width: 0.5),
+            // Interactivity Nodes
+            Row(
+              children: [
+                _buildThemeSegment(ThemeMode.light, 'Light', currentMode, theme),
+                _buildThemeSegment(ThemeMode.dark, 'Dark', currentMode, theme),
+                _buildThemeSegment(ThemeMode.system, 'System', currentMode, theme),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThemeSegment(ThemeMode mode, String label, ThemeMode currentMode, ThemeData theme) {
+    final isSelected = mode == currentMode;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (!isSelected) {
+            HapticService.lightTap();
+            context.read<ThemeProvider>().setThemeMode(mode);
+          }
+        },
+        child: Center(
+          child: AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 350),
+            curve: SpringCurve.snap,
+            style: theme.textTheme.bodyMedium!.copyWith(
+              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+              color: theme.colorScheme.onSurface.withValues(alpha: isSelected ? 1.0 : 0.65),
+            ),
+            child: Text(label),
           ),
         ),
       ),
@@ -429,10 +530,8 @@ class _ProfileTabState extends State<ProfileTab> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (ctx) => _TimezoneSheet(
         currentTimezone: profile.timezone,
         timezones: _timezones,
@@ -464,7 +563,7 @@ class _ProfileTabState extends State<ProfileTab> {
     ColorScheme colorScheme,
     UserProfileProvider profile,
   ) {
-    return Card(
+    return GlassCard(
       child: Column(
         children: [
           // Edit Username.
@@ -561,21 +660,14 @@ class _ProfileTabState extends State<ProfileTab> {
 
   void _showUsernameSheet(UserProfileProvider profile) {
     final controller = TextEditingController(text: profile.username);
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => _UsernameSheet(
         controller: controller,
         profile: profile,
-        theme: theme,
-        colorScheme: colorScheme,
       ),
     );
   }
@@ -665,10 +757,62 @@ class _TimezoneSheetState extends State<_TimezoneSheet> {
         .where((tz) => tz.toLowerCase().contains(_filter.toLowerCase()))
         .toList();
 
+    final isDark = theme.brightness == Brightness.dark;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      padding: EdgeInsets.all(16).copyWith(
+        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16.0),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? Colors.transparent : null,
+              gradient: isDark
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0x0DFFFFFF), // 0.05
+                        Color(0x02FFFFFF), // 0.01
+                      ],
+                    )
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.60),
+                        Colors.white.withValues(alpha: 0.25),
+                      ],
+                    ),
+              borderRadius: BorderRadius.circular(16.0),
+              border: isDark
+                  ? Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1.0,
+                    )
+                  : Border.all(
+                      color: Colors.white.withValues(alpha: 0.65),
+                      width: 1.0,
+                    ),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: const Color(0xFF7A5234).withValues(alpha: 0.04),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Select Timezone',
@@ -680,6 +824,8 @@ class _TimezoneSheetState extends State<_TimezoneSheet> {
             onChanged: (v) => setState(() => _filter = v),
             decoration: InputDecoration(
               hintText: 'Search…',
+              filled: true,
+              fillColor: colorScheme.onSurface.withValues(alpha: 0.05),
               prefixIcon: const Icon(Icons.search_rounded, size: 20),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -733,7 +879,7 @@ class _TimezoneSheetState extends State<_TimezoneSheet> {
           ),
         ],
       ),
-    );
+    ))))));
   }
 }
 
@@ -745,14 +891,10 @@ class _UsernameSheet extends StatefulWidget {
   const _UsernameSheet({
     required this.controller,
     required this.profile,
-    required this.theme,
-    required this.colorScheme,
   });
 
   final TextEditingController controller;
   final UserProfileProvider profile;
-  final ThemeData theme;
-  final ColorScheme colorScheme;
 
   @override
   State<_UsernameSheet> createState() => _UsernameSheetState();
@@ -803,83 +945,174 @@ class _UsernameSheetState extends State<_UsernameSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.of(context).viewInsets.bottom,
+        16, 16, 16,
+        16 + MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Edit Username',
-              style: widget.theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 16),
-          TextField(
-            controller: widget.controller,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Choose a username',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: widget.colorScheme.outline),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: widget.colorScheme.outline),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                    color: widget.colorScheme.primary, width: 1.5),
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              suffixIcon: _available == null
-                  ? null
-                  : _available!
-                      ? const Icon(Icons.check_circle_rounded,
-                          color: Color(0xFF4CAF50))
-                      : const Icon(Icons.cancel_rounded,
-                          color: Color(0xFFE53935)),
-            ),
-          ),
-          if (_reason != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _reason!,
-              style: widget.theme.textTheme.bodySmall?.copyWith(
-                color: _available == true
-                    ? const Color(0xFF4CAF50)
-                    : const Color(0xFFE53935),
-              ),
-            ),
-          ],
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: FilledButton(
-              onPressed: _checking ? null : _checkAndSave,
-              child: _checking
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          widget.colorScheme.onPrimary,
-                        ),
-                      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20.0),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: isDark
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0x0DFFFFFF), // 0.05 — obsidian glass
+                        Color(0x02FFFFFF), // 0.01 — feather fade
+                      ],
                     )
-                  : const Text('Check & Save'),
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.60),
+                        Colors.white.withValues(alpha: 0.25),
+                      ],
+                    ),
+              borderRadius: BorderRadius.circular(20.0),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.15)
+                    : Colors.white.withValues(alpha: 0.55),
+                width: 1.0,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Edit Username',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: widget.controller,
+                    autofocus: true,
+                    style: theme.textTheme.bodyMedium,
+                    decoration: InputDecoration(
+                      hintText: 'Choose a username',
+                      filled: true,
+                      fillColor: colorScheme.onSurface.withValues(alpha: 0.05),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: colorScheme.outline),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: colorScheme.outline),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                            color: colorScheme.primary, width: 1.5),
+                      ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      suffixIcon: _available == null
+                          ? null
+                          : _available!
+                              ? const Icon(Icons.check_circle_rounded,
+                                  color: Color(0xFF4CAF50))
+                              : const Icon(Icons.cancel_rounded,
+                                  color: Color(0xFFE53935)),
+                    ),
+                  ),
+                  if (_reason != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _reason!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _available == true
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFFE53935),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Builder(
+                    builder: (context) {
+                      final isEnabled = !_checking;
+
+                      return Container(
+                        width: double.infinity,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: !isEnabled
+                              ? colorScheme.onSurface.withValues(alpha: 0.08)
+                              : (isDark ? Colors.transparent : null),
+                          gradient: isEnabled && !isDark
+                              ? const LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0xFF9E6F4A),
+                                    Color(0xFF7A5234),
+                                  ],
+                                )
+                              : null,
+                          border: isEnabled
+                              ? (isDark
+                                  ? Border.all(
+                                      color: Colors.white.withValues(alpha: 0.15),
+                                      width: 1.0,
+                                    )
+                                  : Border.all(
+                                      color: Colors.white.withValues(alpha: 0.40),
+                                      width: 0.8,
+                                    ))
+                              : null,
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: isEnabled ? _checkAndSave : null,
+                            child: Center(
+                              child: _checking
+                                  ? SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          colorScheme.onSurface.withValues(alpha: 0.35),
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      'Check & Save',
+                                      style: theme.textTheme.labelLarge?.copyWith(
+                                        color: !isEnabled
+                                            ? colorScheme.onSurface.withValues(alpha: 0.35)
+                                            : Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
+
+
