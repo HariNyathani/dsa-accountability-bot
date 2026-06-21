@@ -21,6 +21,8 @@ class ProgressProvider extends ChangeNotifier {
   // State
   // ---------------------------------------------------------------------------
 
+  bool _disposed = false;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
@@ -52,10 +54,16 @@ class ProgressProvider extends ChangeNotifier {
   ///
   /// Any individual sub-request failure is caught independently so partial
   /// data can still render.
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   Future<void> fetchAll() async {
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
 
     try {
       final results = await Future.wait([
@@ -83,7 +91,7 @@ class ProgressProvider extends ChangeNotifier {
       _error = 'Something went wrong. Pull to retry.';
     } finally {
       _isLoading = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -162,7 +170,7 @@ class ProgressProvider extends ChangeNotifier {
       return response;
     } on DioException catch (e) {
       _error = _humanError(e);
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       return null;
     }
   }
@@ -195,7 +203,7 @@ class ProgressProvider extends ChangeNotifier {
       return response;
     } on DioException catch (e) {
       _error = _humanError(e);
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       return null;
     }
   }

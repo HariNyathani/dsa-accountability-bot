@@ -279,117 +279,117 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-
-
-    return Padding(
-      // Push above the keyboard when it's visible.
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppTheme.cardRadius), // 24 dp
+    return RepaintBoundary(
+      child: Padding(
+        // Push above the keyboard when it's visible.
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: isDark
-                    ? [
-                        Colors.white.withValues(alpha: 0.05),
-                        Colors.white.withValues(alpha: 0.01),
-                      ]
-                    : [
-                        Colors.white.withValues(alpha: 0.45),
-                        Colors.white.withValues(alpha: 0.15),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppTheme.cardRadius), // 24 dp
+          ),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? [
+                          Colors.white.withValues(alpha: 0.05),
+                          Colors.white.withValues(alpha: 0.01),
+                        ]
+                      : [
+                          Colors.white.withValues(alpha: 0.45),
+                          Colors.white.withValues(alpha: 0.15),
+                        ],
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                  left: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                  right: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                ),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Drag handle ─────────────────────────────────────────
+                        Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 20),
+                            decoration: BoxDecoration(
+                              color: colorScheme.onSurface.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+
+                        // ── Title ───────────────────────────────────────────────
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'Log Progress',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'What did you work on today?',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── Intent toggle (Solve / Rest Day) ────────────────────
+                        _buildIntentToggle(theme, colorScheme),
+                        const SizedBox(height: 20),
+
+                        // ── Cross-fade between Solve form and Rest Day view ─────
+                        AnimatedCrossFade(
+                          duration: const Duration(milliseconds: 300),
+                          firstCurve: Curves.easeOut,
+                          secondCurve: Curves.easeOut,
+                          sizeCurve: Curves.easeInOut,
+                          crossFadeState: _isRestDay
+                              ? CrossFadeState.showSecond
+                              : CrossFadeState.showFirst,
+                          firstChild: _buildSolveForm(theme, colorScheme),
+                          secondChild: _buildRestDayView(theme, colorScheme),
+                        ),
                       ],
-              ),
-              border: Border(
-                top: BorderSide(
-                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
-                  width: 1.0,
-                ),
-                left: BorderSide(
-                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
-                  width: 1.0,
-                ),
-                right: BorderSide(
-                  color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
-                  width: 1.0,
-                ),
-              ),
-            ),
-            child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-            child: SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Drag handle ─────────────────────────────────────────
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: colorScheme.onSurface.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
                     ),
                   ),
-
-                  // ── Title ───────────────────────────────────────────────
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      'Log Progress',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'What did you work on today?',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // ── Intent toggle (Solve / Rest Day) ────────────────────
-                  _buildIntentToggle(theme, colorScheme),
-                  const SizedBox(height: 20),
-
-                  // ── Cross-fade between Solve form and Rest Day view ─────
-                  AnimatedCrossFade(
-                    duration: const Duration(milliseconds: 300),
-                    firstCurve: Curves.easeOut,
-                    secondCurve: Curves.easeOut,
-                    sizeCurve: Curves.easeInOut,
-                    crossFadeState: _isRestDay
-                        ? CrossFadeState.showSecond
-                        : CrossFadeState.showFirst,
-                    firstChild: _buildSolveForm(theme, colorScheme),
-                    secondChild: _buildRestDayView(theme, colorScheme),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  ),
-);
+    );
   }
 
   // ── Intent toggle ─────────────────────────────────────────────────────
@@ -665,7 +665,6 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
         const SizedBox(height: 10),
         TextField(
           controller: _problemController,
-          onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: 'Problem #, URL, or title...',
             prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -689,12 +688,20 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
         const SizedBox(height: 32),
 
         // ── Submit CTA ──────────────────────────────────────────────
-        _buildSubmitButton(
-          theme: theme,
-          colorScheme: colorScheme,
-          isEnabled: _selectedPlatform != null &&
-              _problemController.text.trim().isNotEmpty,
-          label: 'Log Problem',
+        // ValueListenableBuilder narrows the rebuild scope to just the submit
+        // button. Without it, every keystroke in the text field would rebuild
+        // the entire 1,000+ line sheet subtree.
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _problemController,
+          builder: (context, textValue, _) {
+            return _buildSubmitButton(
+              theme: theme,
+              colorScheme: colorScheme,
+              isEnabled: _selectedPlatform != null &&
+                  textValue.text.trim().isNotEmpty,
+              label: 'Log Problem',
+            );
+          },
         ),
       ],
     );

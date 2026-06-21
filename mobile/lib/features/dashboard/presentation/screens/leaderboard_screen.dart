@@ -31,11 +31,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<LeaderboardProvider>();
       if (!provider.hasData && !provider.isLoading) {
-        provider.fetch();
+        await provider.fetch();
       }
+      // Guard against the widget being unmounted during the async fetch.
+      if (!mounted) return;
     });
   }
 
@@ -314,137 +316,139 @@ class _LeaderboardRow extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: isDark
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0x0DFFFFFF), // 0.05
-                        Color(0x02FFFFFF), // 0.01
-                      ],
-                    )
-                  : LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.45),
-                        Colors.white.withValues(alpha: 0.15),
-                      ],
+      child: Container(
+        decoration: BoxDecoration(
+          // Flat semi-transparent surface — visually identical to the glass
+          // language but without per-row BackdropFilter blur passes.
+          // On a 30-user leaderboard, the old approach ran 30 blur kernel
+          // passes per rendered frame during scroll.
+          gradient: isDark
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0x0DFFFFFF), // 0.05
+                    Color(0x02FFFFFF), // 0.01
+                  ],
+                )
+              : LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.45),
+                    Colors.white.withValues(alpha: 0.15),
+                  ],
+                ),
+          borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+          border: isDark
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  width: 1.0,
+                )
+              : Border.all(
+                  color: Colors.white.withValues(alpha: 0.50),
+                  width: 1.0,
+                ),
+        ),
+        child: Material(
+          color: cardColor ?? Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppTheme.cardRadius), // 24 dp
+            onTap: () {
+              HapticService.lightTap();
+              if (isCurrentUser) {
+                _showCurrentUserSnack(context);
+              } else {
+                _showProfileSheet(context, entry);
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Row(
+                children: [
+                  // Rank badge.
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      rankDisplay,
+                      style: entry.rank <= 3
+                          ? theme.textTheme.titleLarge
+                          : theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                     ),
-              borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-              border: isDark
-                  ? Border.all(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      width: 1.0,
-                    )
-                  : Border.all(
-                      color: Colors.white.withValues(alpha: 0.50),
-                      width: 1.0,
-                    ),
-            ),
-            child: Material(
-              color: cardColor ?? Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(AppTheme.cardRadius), // 24 dp
-                onTap: () {
-                  HapticService.lightTap();
-                  if (isCurrentUser) {
-                    _showCurrentUserSnack(context);
-                  } else {
-                    _showProfileSheet(context, entry);
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: Row(
-              children: [
-                // Rank badge.
-                SizedBox(
-                  width: 40,
-                  child: Text(
-                    rankDisplay,
-                    style: entry.rank <= 3
-                        ? theme.textTheme.titleLarge
-                        : theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Name + subtitle.
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight:
+                                isCurrentUser ? FontWeight.w700 : FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // Name + subtitle.
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight:
-                              isCurrentUser ? FontWeight.w700 : FontWeight.w600,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      ],
+                    ),
+                  ),
+
+                  // "You" badge for current user.
+                  if (isCurrentUser)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                      child: Text(
+                        'You',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-                // "You" badge for current user.
-                if (isCurrentUser)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(
-                      'You',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w700,
+
+                  // Stat pill for non-current-user rows.
+                  if (!isCurrentUser)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _statPillLabel(entry, sortBy),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
-
-                // Stat pill for non-current-user rows.
-                if (!isCurrentUser)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _statPillLabel(entry, sortBy),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ))));
+    );
   }
 
   // ── Rank tint for top 3 ─────────────────────────────────────────────────
@@ -555,7 +559,8 @@ class _UserProfileSheet extends StatelessWidget {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return Padding(
+    return RepaintBoundary(
+      child: Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
@@ -729,7 +734,7 @@ class _UserProfileSheet extends StatelessWidget {
           ),
         ),
       ),
-    ))));
+    )))));
   }
 
   Widget _statColumn(String label, String value) {

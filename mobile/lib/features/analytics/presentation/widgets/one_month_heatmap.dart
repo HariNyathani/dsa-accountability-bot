@@ -72,6 +72,13 @@ class OneMonthHeatmap extends StatelessWidget {
         ? const Color(0xFF1A1A1A) // Slightly lighter than pure black.
         : const Color(0xFFF5F2EB); // Biscuit beige.
 
+    // Pre-compute colour tiers once per build so itemBuilder doesn't call
+    // Color.lerp on every cell. On a 35-cell grid this avoids ~105 lerp
+    // computations per frame.
+    final tier1 = Color.lerp(baseEmpty, accent, 0.25)!;
+    final tier2 = Color.lerp(baseEmpty, accent, 0.50)!;
+    final tier3 = Color.lerp(baseEmpty, accent, 0.75)!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -137,7 +144,7 @@ class OneMonthHeatmap extends StatelessWidget {
             final isEmpty = cell.count == 0;
             return Container(
               decoration: BoxDecoration(
-                color: _cellColor(cell.count, accent, baseEmpty),
+                color: _cellColor(cell.count, accent, baseEmpty, tier1, tier2, tier3),
                 borderRadius: BorderRadius.circular(6),
                 // Subtle outline on empty cells so the grid matrix reads
                 // clearly on white/light backgrounds.
@@ -218,7 +225,7 @@ class OneMonthHeatmap extends StatelessWidget {
                       width: 14,
                       height: 14,
                       decoration: BoxDecoration(
-                        color: _cellColor(i, accent, baseEmpty),
+                        color: _cellColor(i, accent, baseEmpty, tier1, tier2, tier3),
                         borderRadius: BorderRadius.circular(3),
                         border: i == 0
                             ? Border.all(
@@ -250,11 +257,18 @@ class OneMonthHeatmap extends StatelessWidget {
   // ── Color mapping ─────────────────────────────────────────────────────────
 
   /// Maps submission count → color intensity tier.
-  static Color _cellColor(int count, Color accent, Color empty) {
+  static Color _cellColor(
+    int count,
+    Color accent,
+    Color empty,
+    Color tier1,
+    Color tier2,
+    Color tier3,
+  ) {
     if (count <= 0) return empty;
-    if (count == 1) return Color.lerp(empty, accent, 0.25)!;
-    if (count == 2) return Color.lerp(empty, accent, 0.50)!;
-    if (count == 3) return Color.lerp(empty, accent, 0.75)!;
+    if (count == 1) return tier1;
+    if (count == 2) return tier2;
+    if (count == 3) return tier3;
     return accent; // 4+
   }
 }

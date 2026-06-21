@@ -27,6 +27,9 @@ class SkeletonPulse extends StatefulWidget {
 class _SkeletonPulseState extends State<SkeletonPulse>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  // Stable CurvedAnimation — kept as a field so FadeTransition can hold a
+  // reference to it without allocating a new object on every build.
+  late final Animation<double> _opacity;
 
   @override
   void initState() {
@@ -35,6 +38,12 @@ class _SkeletonPulseState extends State<SkeletonPulse>
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat(reverse: true);
+
+    // Map the [0, 1] controller value into [minOpacity, maxOpacity].
+    final range = widget.maxOpacity - widget.minOpacity;
+    _opacity = _controller
+        .drive(CurveTween(curve: Curves.easeInOut))
+        .drive(Tween<double>(begin: widget.minOpacity, end: widget.minOpacity + range));
   }
 
   @override
@@ -45,15 +54,10 @@ class _SkeletonPulseState extends State<SkeletonPulse>
 
   @override
   Widget build(BuildContext context) {
-    final range = widget.maxOpacity - widget.minOpacity;
-
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) => Opacity(
-        opacity:
-            widget.minOpacity + Curves.easeInOut.transform(_controller.value) * range,
-        child: child,
-      ),
+    // FadeTransition drives opacity through a compositing layer instead of
+    // rebuilding the widget tree on every animation tick (unlike Opacity).
+    return FadeTransition(
+      opacity: _opacity,
       child: widget.child,
     );
   }

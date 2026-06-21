@@ -1,4 +1,4 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -759,7 +759,8 @@ class _TimezoneSheetState extends State<_TimezoneSheet> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return Padding(
+    return RepaintBoundary(
+      child: Padding(
       padding: EdgeInsets.all(16).copyWith(
         bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
       ),
@@ -879,7 +880,7 @@ class _TimezoneSheetState extends State<_TimezoneSheet> {
           ),
         ],
       ),
-    ))))));
+       )))))));
   }
 }
 
@@ -904,6 +905,15 @@ class _UsernameSheetState extends State<_UsernameSheet> {
   bool _checking = false;
   bool? _available;
   String? _reason;
+
+  @override
+  void dispose() {
+    // The controller is created in _showUsernameSheet() and transferred to
+    // this sheet as widget.controller. Since no other owner calls dispose(),
+    // we must do it here to avoid the TextEditingController leak.
+    widget.controller.dispose();
+    super.dispose();
+  }
 
   Future<void> _checkAndSave() async {
     final name = widget.controller.text.trim();
