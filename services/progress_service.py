@@ -176,6 +176,7 @@ def _resolved_to_match_dict(resolved) -> dict:
         "score": resolved.score,
         "question_count": 1,
         "platform": resolved.platform,
+        "question_id": int(resolved.problem_id) if resolved.problem_id and resolved.problem_id.isdigit() else None,
     }
 
 

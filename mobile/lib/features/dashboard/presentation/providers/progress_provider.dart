@@ -154,6 +154,11 @@ class ProgressProvider extends ChangeNotifier {
       }
 
       _dueReviews = (results[4] as List<RevisionDueItem>?) ?? [];
+
+      // Invalidate revision bank items to keep data synchronous across tabs
+      if (_allRevisionItems.isNotEmpty || true) {
+        await fetchAllRevisionItems(page: 1, limit: 10);
+      }
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
