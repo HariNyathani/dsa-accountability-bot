@@ -85,6 +85,10 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
   int _questionCount = 1;
   final _problemController = TextEditingController();
 
+  // ── SRS Confidence (1–5 stars, LeetCode only) ─────────────────────────
+  // Default to 3 (Okay) so the meter is always in a valid state.
+  int _confidence = 3;
+
   // ── Submit state machine ──────────────────────────────────────────────
   _SubmitPhase _phase = _SubmitPhase.idle;
 
@@ -189,9 +193,13 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
     setState(() => _phase = _SubmitPhase.loading);
 
     final provider = context.read<ProgressProvider>();
+    // Forward confidence only for LeetCode — the SRS system only supports
+    // LeetCode problems (revision_bank references leetcode_problems FK).
+    final isLeetCode = _selectedPlatform == 'LeetCode';
     final response = await provider.logPlatformProblem(
       platform: _selectedPlatform!,
       problemIdentifier: _problemController.text.trim(),
+      confidence: isLeetCode ? _confidence : null,
     );
 
     // ── Lifecycle guard ─────────────────────────────────────────────────
@@ -685,7 +693,15 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
                 horizontal: 16, vertical: 14),
           ),
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
+
+        // ── Confidence Meter (LeetCode only) ────────────────────────
+        // Only shown when LeetCode is selected. Hidden for Codeforces
+        // and any other platform that doesn't use the revision bank.
+        if (_selectedPlatform == 'LeetCode') ...[
+          _buildConfidenceMeter(theme, colorScheme),
+          const SizedBox(height: 24),
+        ],
 
         // ── Submit CTA ──────────────────────────────────────────────
         // ValueListenableBuilder narrows the rebuild scope to just the submit
@@ -702,6 +718,66 @@ class _LogProgressSheetState extends State<_LogProgressSheet>
               label: 'Log Problem',
             );
           },
+        ),
+      ],
+    );
+  }
+
+  // ── Confidence Meter ──────────────────────────────────────────────────
+
+  /// Renders a row of 5 tappable star icons for the SRS confidence rating.
+  ///
+  /// Isolated as its own method so it can be conditionally inserted into
+  /// `_buildPlatformLogForm` without touching the surrounding layout.
+  /// Uses `_confidence` local state (default 3, range 1–5).
+  Widget _buildConfidenceMeter(ThemeData theme, ColorScheme colorScheme) {
+    const labels = [
+      'Blackout',
+      'Hard',
+      'Okay',
+      'Easy',
+      'Confident',
+    ];
+    final starColor = const Color(0xFFF59E0B); // Amber-400 — warm gold
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _sectionLabel(theme, colorScheme, 'CONFIDENCE'),
+        const SizedBox(height: 6),
+        Text(
+          labels[_confidence - 1],
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: List.generate(5, (i) {
+            final starIndex = i + 1; // 1-indexed
+            final isFilled = starIndex <= _confidence;
+            return GestureDetector(
+              onTap: () {
+                HapticService.lightTap();
+                setState(() => _confidence = starIndex);
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Icon(
+                  isFilled ? Icons.star_rounded : Icons.star_border_rounded,
+                  size: 32,
+                  color: isFilled
+                      ? starColor
+                      : colorScheme.onSurface.withValues(alpha: 0.25),
+                ),
+              ),
+            );
+          }),
         ),
       ],
     );

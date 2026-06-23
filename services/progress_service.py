@@ -201,6 +201,19 @@ _PROBLEM_URL_RE = re.compile(
 )
 
 
+# ── SRS Confidence Interval Schedule ────────────────────────────────────────
+#
+# Maps a self-reported confidence score (1-5) to the number of days until the
+# problem should resurface in the revision queue.
+#   1 = Blackout  -> review again tomorrow
+#   2 = Hard      -> 2 days
+#   3 = Okay      -> 5 days
+#   4 = Easy      -> 10 days
+#   5 = Confident -> 30 days
+
+CONFIDENCE_INTERVAL_DAYS = {1: 1, 2: 2, 3: 5, 4: 10, 5: 30}
+
+
 # ── Main Entry Point ────────────────────────────────────────────────────────
 
 async def process_progress_submission(
@@ -210,11 +223,25 @@ async def process_progress_submission(
     channel_id: int = 0,
     override_date: str = None,
     web_topics: list = None,
-    acting_user_id: int = None
+    acting_user_id: int = None,
+    confidence: int | None = None,
+    is_review: bool = False,
 ) -> dict:
     """
     Canonical backend progress-recording service.
     Used by both Discord message handler and Web dashboard.
+
+    Parameters
+    ----------
+    confidence : int | None
+        Self-reported confidence score 1-5 (used for SRS scheduling).
+        Only meaningful for LeetCode problems.  Ignored for other platforms.
+    is_review : bool
+        When True, this submission is a spaced-repetition review session rather
+        than a first-time solve.  Review sessions are logged with
+        ``is_review=True`` in progress_logs and trigger a revision_bank UPSERT,
+        but they do NOT update the streak or daily_status (to avoid inflating
+        the user's first-time-solve metrics).
     """
     # Ensure user exists
     user = await database.get_user(user_id)
@@ -590,18 +617,68 @@ async def process_progress_submission(
         message_type=msg_type,
         parsed_fields=parsed_fields_json,
         platform=log_platform,
+        is_review=is_review,
     )
 
-    # Mark today as posted
-    await database.mark_posted(user_id, today)
-
-    # Update streak
-    streak = await on_post(user_id, today)
+    # ── Streak & daily_status: ONLY update for first-time solves ──────
+    # Review sessions must NOT count toward the daily posting streak —
+    # only original problem solves should advance the streak counter.
+    if not is_review:
+        await database.mark_posted(user_id, today)
+        streak = await on_post(user_id, today)
+    else:
+        # For review sessions, return the current streak without modifying it
+        streak = await database.get_streak(user_id)
 
     logger.info(
         f"Progress logged: user={user_id}, source={source}, type={msg_type}, "
-        f"topics={topics_str}, streak={streak.get('current_streak', 0)}"
+        f"topics={topics_str}, streak={streak.get('current_streak', 0)}, "
+        f"is_review={is_review}"
     )
+
+    # ── Revision Bank UPSERT (SRS scheduling) ─────────────────────────
+    # Triggered when:
+    #   - platform is 'leetcode' (revision_bank references leetcode_problems)
+    #   - a valid confidence score (1-5) was provided
+    #   - the log contains at least one resolved LeetCode problem with a question_id
+    if log_platform == "leetcode" and confidence is not None and 1 <= confidence <= 5:
+        from datetime import datetime, timezone, timedelta
+        interval_days = CONFIDENCE_INTERVAL_DAYS[confidence]
+        next_review_at = (
+            datetime.now(timezone.utc) + timedelta(days=interval_days)
+        ).isoformat()
+
+        # Find the resolved LeetCode question_id from leetcode_matches or parsed_fields
+        problem_id: int | None = None
+        for entry in parsed_fields_dict.get("log", []):
+            # The resolver stores the numeric question_id in the platform log entry;
+            # we dig it out from leetcode_matches which carries the resolved object.
+            pass
+
+        # Fall back: look in leetcode_matches for a numeric problem_id
+        # (populated via resolve_problem which returns question_id as problem_id attr)
+        for match in leetcode_matches:
+            qid = match.get("question_id") or match.get("problem_id")
+            if qid and str(qid).isdigit():
+                problem_id = int(qid)
+                break
+
+        if problem_id:
+            try:
+                await database.upsert_revision_bank(
+                    user_id=user_id,
+                    problem_id=problem_id,
+                    confidence=confidence,
+                    next_review_at=next_review_at,
+                )
+                logger.info(
+                    f"[SRS] Upserted revision_bank: user={user_id}, "
+                    f"problem_id={problem_id}, confidence={confidence}, "
+                    f"next_review_at={next_review_at}"
+                )
+            except Exception as srs_err:
+                # Non-fatal: SRS failure must not break the main log flow
+                logger.warning(f"[SRS] upsert_revision_bank failed: {srs_err}")
 
     # Build feedback message
     if msg_type == "rest":
@@ -610,6 +687,7 @@ async def process_progress_submission(
         feedback_message = f"🛌 **Rest Day Logged.** (Used {rest_count}/4 this month). Your {streak.get('current_streak', 0)} day streak is preserved. Recharging is part of the grind-see you tomorrow! 🌙"
     else:
         feedback_message = _build_feedback(topics, leetcode_matches, msg_type)
+
 
     return {
         "status": "success",

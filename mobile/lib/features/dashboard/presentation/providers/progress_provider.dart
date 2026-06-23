@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../../../../core/network/api_client.dart';
 import '../../data/models/platform_log.dart';
@@ -7,8 +7,8 @@ import '../../data/models/user_stats.dart';
 
 /// Async state controller for user progress data.
 ///
-/// Fetches stats, heatmap, and activity from the backend via [ApiClient],
-/// and exposes a manual problem-logging action (`POST /progress`).
+/// Fetches stats, heatmap, activity, and the SRS revision queue from the
+/// backend via [ApiClient], and exposes manual problem-logging actions.
 ///
 /// State machine: `idle → loading → success | error`.
 class ProgressProvider extends ChangeNotifier {
@@ -44,20 +44,86 @@ class ProgressProvider extends ChangeNotifier {
   UserDifficulty? _difficulty;
   UserDifficulty? get difficulty => _difficulty;
 
+  /// SRS revision-bank items that are currently due for review.
+  /// Empty list means either no items are due or the fetch hasn't completed.
+  List<RevisionDueItem> _dueReviews = [];
+  List<RevisionDueItem> get dueReviews => List.unmodifiable(_dueReviews);
+
+  // ---------------------------------------------------------------------------
+  // All Revision Items (full bank, paginated) — lazy loaded by RevisionTab
+  // ---------------------------------------------------------------------------
+
+  /// Full revision bank — includes items not yet due. Populated by
+  /// [fetchAllRevisionItems]; empty until the Revision Tab is first opened.
+  List<RevisionBankItem> _allRevisionItems = [];
+  List<RevisionBankItem> get allRevisionItems =>
+      List.unmodifiable(_allRevisionItems);
+
+  /// Total count of items in the revision bank (pre-pagination).
+  int _totalRevisionCount = 0;
+  int get totalRevisionCount => _totalRevisionCount;
+
+  /// Per-topic SRS confidence aggregates, sorted weakest-first (ASC).
+  /// Populated alongside [_allRevisionItems] by [fetchAllRevisionItems].
+  List<RevisionTopicStat> _revisionTopicStats = [];
+  List<RevisionTopicStat> get revisionTopicStats =>
+      List.unmodifiable(_revisionTopicStats);
+
+  /// True while [fetchAllRevisionItems] is in flight.
+  bool _isLoadingRevision = false;
+  bool get isLoadingRevision => _isLoadingRevision;
+
   bool get hasData => _stats != null;
 
   // ---------------------------------------------------------------------------
   // Fetch all dashboard data in parallel
   // ---------------------------------------------------------------------------
 
-  /// Fetches stats, heatmap, and recent activity concurrently.
-  ///
-  /// Any individual sub-request failure is caught independently so partial
-  /// data can still render.
+  /// Fetches stats, heatmap, recent activity, and due revision items
+  /// concurrently.  Any individual sub-request failure is caught independently
+  /// so partial data can still render.
   @override
   void dispose() {
     _disposed = true;
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lazy fetch — Revision Tab only
+  // ---------------------------------------------------------------------------
+
+  /// Fetches the complete revision bank (paginated) and topic-confidence
+  /// aggregates from `GET /progress/revision/all`.
+  ///
+  /// Called lazily from the Revision Tab's `initState` \u2192 `addPostFrameCallback`
+  /// so the main dashboard startup path is not affected.
+  ///
+  /// [page] is 1-based. [limit] caps at 100 (enforced server-side).
+  /// Topic stats are refreshed on every call so they stay current after a
+  /// review submission changes the underlying confidence scores.
+  Future<void> fetchAllRevisionItems({int page = 1, int limit = 10}) async {
+    _isLoadingRevision = true;
+    if (!_disposed) notifyListeners();
+
+    try {
+      final res = await apiClient.dio.get(
+        '/progress/revision/all',
+        queryParameters: {'page': page, 'limit': limit},
+      );
+      final pageData = RevisionBankPage.fromJson(
+        res.data as Map<String, dynamic>,
+      );
+      _allRevisionItems   = pageData.items;
+      _totalRevisionCount = pageData.totalCount;
+      _revisionTopicStats = pageData.topicStats; // sorted ASC by backend
+    } on DioException catch (e) {
+      _error = _humanError(e);
+    } catch (e) {
+      _error = 'Could not load revision bank. Pull to retry.';
+    } finally {
+      _isLoadingRevision = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> fetchAll() async {
@@ -71,6 +137,7 @@ class ProgressProvider extends ChangeNotifier {
         _fetchHeatmap(),
         _fetchActivity(),
         _fetchAggregate(),
+        _fetchDueReviews(),
       ], eagerError: false);
 
       _stats = results[0] as UserStats?;
@@ -85,6 +152,8 @@ class ProgressProvider extends ChangeNotifier {
         // returned null (resilient partial-failure path).
         _stats ??= aggregate.stats;
       }
+
+      _dueReviews = (results[4] as List<RevisionDueItem>?) ?? [];
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
@@ -146,6 +215,23 @@ class ProgressProvider extends ChangeNotifier {
     }
   }
 
+  /// Fetches the authenticated user's SRS revision queue.
+  ///
+  /// The backend returns a plain JSON array (not wrapped in `data`).
+  /// On failure, returns an empty list so the rest of the dashboard
+  /// renders normally.
+  Future<List<RevisionDueItem>?> _fetchDueReviews() async {
+    try {
+      final res = await apiClient.dio.get('/progress/revision/due');
+      final list = res.data as List<dynamic>?;
+      return list
+          ?.map((e) => RevisionDueItem.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException {
+      return null; // Non-fatal — SRS queue will just be empty.
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------
@@ -183,6 +269,8 @@ class ProgressProvider extends ChangeNotifier {
   Future<PlatformLogResponse?> logPlatformProblem({
     required String platform,
     required String problemIdentifier,
+    int? confidence,
+    bool isReview = false,
   }) async {
     try {
       final res = await apiClient.dio.post(
@@ -190,6 +278,8 @@ class ProgressProvider extends ChangeNotifier {
         data: {
           'platform': platform.toLowerCase(),
           'problem_identifier': problemIdentifier,
+          if (confidence != null) 'confidence': confidence,
+          if (isReview) 'is_review': true,
         },
       );
       final response = PlatformLogResponse.fromJson(
@@ -205,6 +295,59 @@ class ProgressProvider extends ChangeNotifier {
       _error = _humanError(e);
       if (!_disposed) notifyListeners();
       return null;
+    }
+  }
+
+  /// Submit a spaced-repetition review (`POST /progress/revision/review`).
+  ///
+  /// On success, the problem is **optimistically removed** from [dueReviews]
+  /// without forcing a full network refresh — keeps the UI snappy.
+  /// On failure, the item is NOT removed and a [SnackBar] is shown via
+  /// [scaffoldMessengerKey] so the user can retry.
+  ///
+  /// Returns `true` on success, `false` on failure.
+  Future<bool> submitReview({
+    required int problemId,
+    required int confidence,
+    required BuildContext context,
+  }) async {
+    try {
+      await apiClient.dio.post(
+        '/progress/revision/review',
+        data: {
+          'problem_id': problemId,
+          'confidence': confidence,
+        },
+      );
+
+      // Optimistic local update — remove the reviewed item from the queue.
+      _dueReviews = _dueReviews
+          .where((item) => item.problemId != problemId)
+          .toList();
+      if (!_disposed) notifyListeners();
+      return true;
+    } on DioException catch (e) {
+      // Non-fatal: do NOT remove from list; let user retry.
+      if (!_disposed) {
+        final detail =
+            (e.response?.data as Map<String, dynamic>?)?['detail']
+                as String?;
+        final message = (detail != null && detail.isNotEmpty)
+            ? detail
+            : 'Review submission failed. Please try again.';
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
+      }
+      return false;
     }
   }
 
@@ -229,3 +372,6 @@ class ProgressProvider extends ChangeNotifier {
     return 'Something went wrong. Pull to retry.';
   }
 }
+
+
+

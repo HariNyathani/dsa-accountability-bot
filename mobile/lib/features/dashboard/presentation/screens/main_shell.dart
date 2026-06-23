@@ -16,10 +16,11 @@ import '../providers/leaderboard_provider.dart';
 import '../providers/progress_provider.dart';
 import '../widgets/log_progress_sheet.dart';
 import 'tabs/dashboard_tab.dart';
+import 'tabs/revision_tab.dart';
 
 /// Main authenticated navigation shell.
 ///
-/// Hosts an [IndexedStack] of 3 core feature tabs behind a
+/// Hosts an [IndexedStack] of 4 core feature tabs behind a
 /// Material 3 [NavigationBar] styled to match our design tokens:
 /// cream background, hairline top border, jade-green active indicator.
 ///
@@ -41,6 +42,7 @@ class _MainShellState extends State<MainShell> {
 
   static const _tabs = <Widget>[
     DashboardTab(),
+    RevisionTab(),
     AnalyticsTab(),
     ProfileTab(),
   ];
@@ -201,11 +203,11 @@ class _MainShellState extends State<MainShell> {
 
                     // The Sliding Liquid Selection Capsule
                     AnimatedAlign(
-                      alignment: Alignment(-1.0 + (_currentIndex * 1.0), 0.0),
+                      alignment: Alignment(-1.0 + (_currentIndex * (2.0 / 3.0)), 0.0),
                       duration: const Duration(milliseconds: 350),
                       curve: SpringCurve.snap,
                       child: FractionallySizedBox(
-                        widthFactor: 0.33,
+                        widthFactor: 0.25,
                         child: Padding(
                           padding: const EdgeInsets.all(6.0),
                           child: Container(
@@ -255,8 +257,9 @@ class _MainShellState extends State<MainShell> {
                     Row(
                       children: [
                         _buildNavItem(0, Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Dashboard', theme, colorScheme),
-                        _buildNavItem(1, Icons.analytics_outlined, Icons.analytics_rounded, 'Analytics', theme, colorScheme),
-                        _buildNavItem(2, Icons.person_outline_rounded, Icons.person_rounded, 'Profile', theme, colorScheme),
+                        _buildNavItem(1, Icons.assignment_turned_in_outlined, Icons.assignment_turned_in, 'Revision', theme, colorScheme),
+                        _buildNavItem(2, Icons.analytics_outlined, Icons.analytics_rounded, 'Analytics', theme, colorScheme),
+                        _buildNavItem(3, Icons.person_outline_rounded, Icons.person_rounded, 'Profile', theme, colorScheme),
                       ],
                     ),
                   ],

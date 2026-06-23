@@ -347,15 +347,16 @@ async def get_all_active_users_with_settings() -> List[dict]:
 
 async def save_progress_log(user_id: int, channel_id: int, message_content: str, topics: str,
                             posted_at: str, log_date: str, message_type: str = "progress",
-                            parsed_fields: str = None, platform: str = "leetcode"):
+                            parsed_fields: str = None, platform: str = "leetcode",
+                            is_review: bool = False):
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO progress_logs
-                        (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform))
+                        (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform, is_review)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (user_id, channel_id, message_content, topics, parsed_fields, posted_at, log_date, message_type, platform, is_review))
     return await _run_sync(_sync)
 
 
@@ -972,4 +973,227 @@ async def get_all_daily_statuses(user_id: int) -> list:
                         d['date'] = str(d['date'])
                     rows.append(d)
                 return rows
+    return await _run_sync(_sync)
+
+
+# ── Revision Bank (Spaced Repetition) helpers ────────────────────────────────
+
+async def upsert_revision_bank(
+    user_id: int,
+    problem_id: int,
+    confidence: int,
+    next_review_at: str,
+) -> None:
+    """
+    INSERT a new revision-bank row or UPDATE an existing one.
+
+    On conflict (user_id, problem_id) the existing row is updated with:
+      - confidence_last  → the new self-reported confidence score
+      - next_review_at   → the newly calculated UTC review timestamp
+      - last_reviewed_at → NOW()
+      - review_count     → incremented by 1
+
+    ``first_solved_at`` is intentionally left unchanged so we preserve
+    the original solve date across all subsequent reviews.
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO revision_bank
+                        (user_id, problem_id, confidence_last, next_review_at,
+                         first_solved_at, last_reviewed_at, review_count)
+                    VALUES (%s, %s, %s, %s::timestamptz, NOW(), NOW(), 1)
+                    ON CONFLICT (user_id, problem_id) DO UPDATE SET
+                        confidence_last  = EXCLUDED.confidence_last,
+                        next_review_at   = EXCLUDED.next_review_at,
+                        last_reviewed_at = NOW(),
+                        review_count     = revision_bank.review_count + 1
+                """, (user_id, problem_id, confidence, next_review_at))
+    return await _run_sync(_sync)
+
+
+async def get_due_revision_items(user_id: int) -> List[dict]:
+    """
+    Return all revision-bank items that are due (next_review_at <= NOW())
+    for the given user, joined with leetcode_problems for title/difficulty/topics.
+
+    Results are ordered by next_review_at ASC (most overdue first).
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT
+                        rb.problem_id,
+                        rb.confidence_last,
+                        rb.next_review_at,
+                        rb.first_solved_at,
+                        rb.last_reviewed_at,
+                        rb.review_count,
+                        lp.title,
+                        lp.title_slug,
+                        lp.difficulty,
+                        lp.topics
+                    FROM revision_bank rb
+                    JOIN leetcode_problems lp ON lp.question_id = rb.problem_id
+                    WHERE rb.user_id = %s
+                      AND rb.next_review_at <= NOW()
+                    ORDER BY rb.next_review_at ASC
+                """, (user_id,))
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    # Serialize timestamps to ISO strings for JSON serialisation
+                    for ts_col in ("next_review_at", "first_solved_at", "last_reviewed_at"):
+                        if d.get(ts_col):
+                            d[ts_col] = d[ts_col].isoformat()
+                    # topics is JSONB — psycopg2 returns it as a Python list already
+                    if isinstance(d.get("topics"), str):
+                        try:
+                            d["topics"] = json.loads(d["topics"])
+                        except (ValueError, TypeError):
+                            d["topics"] = []
+                    rows.append(d)
+                return rows
+    return await _run_sync(_sync)
+
+
+async def get_all_revision_items(
+    user_id: int,
+    page: int = 1,
+    limit: int = 10,
+) -> dict:
+    """Return ALL revision-bank items for a user (paginated), regardless of
+    whether next_review_at is in the past or future.
+
+    Unlike ``get_due_revision_items``, this query has **no** ``next_review_at
+    <= NOW()`` predicate — it surfaces the entire tracking population so the
+    mobile client can render a comprehensive "All Problems" view.
+
+    Returns
+    -------
+    dict
+        ``{"items": List[dict], "total_count": int}``
+
+        Each item dict mirrors the RevisionDueItem schema plus:
+        - ``days_remaining`` (float): positive = future, negative = overdue.
+          Computed server-side to avoid timezone drift.
+        - ``total_count``: total rows before pagination (from window function).
+    """
+    offset = (page - 1) * limit
+
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    """
+                    WITH ranked AS (
+                        SELECT
+                            rb.problem_id,
+                            rb.confidence_last,
+                            rb.next_review_at,
+                            rb.first_solved_at,
+                            rb.last_reviewed_at,
+                            rb.review_count,
+                            lp.title,
+                            lp.title_slug,
+                            lp.difficulty,
+                            lp.topics,
+                            EXTRACT(EPOCH FROM (rb.next_review_at - NOW()))
+                                / 86400.0                          AS days_remaining,
+                            COUNT(*) OVER ()                       AS total_count
+                        FROM revision_bank rb
+                        JOIN leetcode_problems lp
+                          ON lp.question_id = rb.problem_id
+                        WHERE rb.user_id = %(user_id)s
+                        ORDER BY rb.next_review_at ASC
+                    )
+                    SELECT * FROM ranked
+                    LIMIT  %(limit)s
+                    OFFSET %(offset)s
+                    """,
+                    {"user_id": user_id, "limit": limit, "offset": offset},
+                )
+                rows = cur.fetchall()
+                total_count = int(rows[0]["total_count"]) if rows else 0
+
+                items = []
+                for r in rows:
+                    d = dict(r)
+                    d.pop("total_count", None)
+
+                    # Serialise timestamps to ISO-8601 strings
+                    for ts_col in ("next_review_at", "first_solved_at", "last_reviewed_at"):
+                        if d.get(ts_col):
+                            d[ts_col] = d[ts_col].isoformat()
+
+                    # Ensure days_remaining is a Python float
+                    if d.get("days_remaining") is not None:
+                        d["days_remaining"] = float(d["days_remaining"])
+
+                    # topics JSONB → Python list
+                    raw_topics = d.get("topics")
+                    if isinstance(raw_topics, str):
+                        try:
+                            d["topics"] = json.loads(raw_topics)
+                        except (ValueError, TypeError):
+                            d["topics"] = []
+                    elif not isinstance(raw_topics, list):
+                        d["topics"] = []
+
+                    items.append(d)
+
+                return {"items": items, "total_count": total_count}
+
+    return await _run_sync(_sync)
+
+
+async def get_revision_topic_confidence(user_id: int) -> List[dict]:
+    """Aggregate average SRS confidence per topic cluster for a user.
+
+    Unnests the ``topics`` JSONB array on ``leetcode_problems`` using
+    ``CROSS JOIN LATERAL jsonb_array_elements_text`` so that a problem
+    tagged with multiple topics contributes its ``confidence_last`` score
+    to *each* of those topic aggregates independently.
+
+    Results are sorted ``avg_confidence ASC`` (lowest = weakest pattern).
+    A secondary ``problem_count DESC`` tie-break surfaces topics backed by
+    more data first when two topics share an identical average.
+
+    Returns
+    -------
+    List[dict]
+        Each dict: ``{"topic": str, "avg_confidence": float, "problem_count": int}``.
+        Returns ``[]`` if the user has no revision-bank entries.
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        topic_tag                                   AS topic,
+                        ROUND(AVG(rb.confidence_last)::numeric, 2) AS avg_confidence,
+                        COUNT(*)                                    AS problem_count
+                    FROM revision_bank rb
+                    JOIN leetcode_problems lp
+                      ON lp.question_id = rb.problem_id
+                    CROSS JOIN LATERAL
+                        jsonb_array_elements_text(lp.topics)       AS topic_tag
+                    WHERE rb.user_id = %(user_id)s
+                    GROUP BY topic_tag
+                    ORDER BY avg_confidence ASC,   -- lowest confidence first (weakest)
+                             problem_count DESC    -- tie-break: prefer more data
+                    """,
+                    {"user_id": user_id},
+                )
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    d["avg_confidence"] = float(d["avg_confidence"])
+                    d["problem_count"]  = int(d["problem_count"])
+                    rows.append(d)
+                return rows
+
     return await _run_sync(_sync)

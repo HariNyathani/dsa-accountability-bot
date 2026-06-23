@@ -8,6 +8,7 @@ import '../../../../../core/widgets/skeleton_card.dart';
 import '../../../../profile/presentation/providers/user_profile_provider.dart';
 import '../../providers/leaderboard_provider.dart';
 import '../../providers/progress_provider.dart';
+import '../../widgets/due_reviews_card.dart';
 import '../leaderboard_screen.dart';
 
 /// Dashboard tab — authenticated user's primary landing surface.
@@ -128,6 +129,11 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                     const SizedBox(height: 24),
                   ],
+
+                  // ── Due Reviews (SRS) ───────────────────────────────────
+                  // Self-collapses to SizedBox.shrink() when empty, so
+                  // there is zero layout impact when the review queue is clear.
+                  const DueReviewsCard(),
 
                   // ── Current Streak ──────────────────────────────────────
                   _sectionLabel(theme, 'Current Streak'),

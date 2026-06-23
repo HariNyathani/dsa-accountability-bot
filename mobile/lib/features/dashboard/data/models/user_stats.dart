@@ -141,18 +141,26 @@ class LogProgressRequest {
     required this.topics,
     this.note,
     this.targetDate,
+    this.confidence,
+    this.isReview,
   });
 
   final String intentType;
   final List<ProgressTopicLog> topics;
   final String? note;
   final String? targetDate;
+  /// SRS confidence score 1–5 (LeetCode only). Triggers revision_bank scheduling.
+  final int? confidence;
+  /// True for spaced-repetition review sessions (does not advance streak).
+  final bool? isReview;
 
   Map<String, dynamic> toJson() => {
         'intent_type': intentType,
         'topics': topics.map((t) => t.toJson()).toList(),
         if (note != null) 'note': note,
         if (targetDate != null) 'target_date': targetDate,
+        if (confidence != null) 'confidence': confidence,
+        if (isReview != null && isReview!) 'is_review': isReview,
       };
 }
 
@@ -173,6 +181,221 @@ class ProgressTopicLog {
         if (difficulty != null) 'difficulty': difficulty,
       };
 }
+
+// =============================================================================
+// RevisionDueItem — GET /progress/revision/due list item
+// =============================================================================
+
+/// Mirrors the backend `RevisionDueItem` Pydantic schema.
+/// Returned by `GET /progress/revision/due` as a JSON array.
+class RevisionDueItem {
+  const RevisionDueItem({
+    required this.problemId,
+    required this.title,
+    required this.titleSlug,
+    required this.difficulty,
+    this.topics = const [],
+    required this.confidenceLast,
+    required this.nextReviewAt,
+    required this.firstSolvedAt,
+    this.lastReviewedAt,
+    this.reviewCount = 0,
+  });
+
+  final int problemId;
+  final String title;
+  final String titleSlug;
+  final String difficulty;
+  final List<String> topics;
+  /// Last self-reported confidence score (1–5).
+  final int confidenceLast;
+  /// ISO-8601 UTC timestamp when this item became due.
+  final String nextReviewAt;
+  /// ISO-8601 UTC timestamp of the original solve.
+  final String firstSolvedAt;
+  /// ISO-8601 UTC timestamp of the last review (null on first-ever review).
+  final String? lastReviewedAt;
+  final int reviewCount;
+
+  factory RevisionDueItem.fromJson(Map<String, dynamic> json) {
+    return RevisionDueItem(
+      problemId: (json['problem_id'] as num?)?.toInt() ?? 0,
+      title: json['title']?.toString() ?? '',
+      titleSlug: json['title_slug']?.toString() ?? '',
+      difficulty: json['difficulty']?.toString() ?? '',
+      topics: (json['topics'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      confidenceLast: (json['confidence_last'] as num?)?.toInt() ?? 3,
+      nextReviewAt: json['next_review_at']?.toString() ?? '',
+      firstSolvedAt: json['first_solved_at']?.toString() ?? '',
+      lastReviewedAt: json['last_reviewed_at']?.toString(),
+      reviewCount: (json['review_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+
+// =============================================================================
+// RevisionBankItem — GET /progress/revision/all list item
+// =============================================================================
+
+/// Superset of [RevisionDueItem] that covers all problems in the revision bank,
+/// not just those that are currently due.
+///
+/// The extra [daysRemaining] field is computed server-side so the client never
+/// needs to do timezone arithmetic:
+///   - negative  → overdue (display in red)
+///   - ~0        → due today
+///   - positive  → upcoming (display normally)
+class RevisionBankItem {
+  const RevisionBankItem({
+    required this.problemId,
+    required this.title,
+    required this.titleSlug,
+    required this.difficulty,
+    this.topics = const [],
+    required this.confidenceLast,
+    required this.nextReviewAt,
+    required this.firstSolvedAt,
+    this.lastReviewedAt,
+    this.reviewCount = 0,
+    required this.daysRemaining,
+  });
+
+  final int problemId;
+  final String title;
+  final String titleSlug;
+  final String difficulty;
+  final List<String> topics;
+
+  /// Last self-reported confidence score (1–5).
+  final int confidenceLast;
+
+  /// ISO-8601 UTC timestamp of the next scheduled review.
+  final String nextReviewAt;
+
+  /// ISO-8601 UTC timestamp of the original solve.
+  final String firstSolvedAt;
+
+  /// ISO-8601 UTC timestamp of the last review (null on first-ever review).
+  final String? lastReviewedAt;
+
+  final int reviewCount;
+
+  /// Days until the next review (server-computed).
+  /// Negative = overdue, ~0 = today, positive = future.
+  final double daysRemaining;
+
+  factory RevisionBankItem.fromJson(Map<String, dynamic> json) {
+    return RevisionBankItem(
+      problemId: (json['problem_id'] as num?)?.toInt() ?? 0,
+      title: json['title']?.toString() ?? '',
+      titleSlug: json['title_slug']?.toString() ?? '',
+      difficulty: json['difficulty']?.toString() ?? '',
+      topics: (json['topics'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      confidenceLast: (json['confidence_last'] as num?)?.toInt() ?? 3,
+      nextReviewAt: json['next_review_at']?.toString() ?? '',
+      firstSolvedAt: json['first_solved_at']?.toString() ?? '',
+      lastReviewedAt: json['last_reviewed_at']?.toString(),
+      reviewCount: (json['review_count'] as num?)?.toInt() ?? 0,
+      daysRemaining: (json['days_remaining'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+
+// =============================================================================
+// RevisionTopicStat — topic-level SRS confidence aggregate
+// =============================================================================
+
+/// Per-topic average SRS confidence derived from the revision bank.
+///
+/// Computed server-side by unnesting `leetcode_problems.topics` (JSONB) and
+/// grouping `revision_bank.confidence_last` values per tag.
+/// The backend returns these sorted by [avgConfidence] ascending, so
+/// `list[0]` is always the user's weakest DSA pattern.
+class RevisionTopicStat {
+  const RevisionTopicStat({
+    required this.topic,
+    required this.avgConfidence,
+    required this.problemCount,
+  });
+
+  /// Topic name (e.g. "Dynamic Programming", "Graphs").
+  final String topic;
+
+  /// Mean confidence score across all revision-bank problems tagged with
+  /// this topic. Range: 1.0 (blackout) – 5.0 (confident).
+  final double avgConfidence;
+
+  /// Number of revision-bank items contributing to this aggregate.
+  final int problemCount;
+
+  factory RevisionTopicStat.fromJson(Map<String, dynamic> json) {
+    return RevisionTopicStat(
+      topic: json['topic']?.toString() ?? '',
+      // Default to 5.0 (confident) so missing data never shows as "weakest".
+      avgConfidence: (json['avg_confidence'] as num?)?.toDouble() ?? 5.0,
+      problemCount: (json['problem_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+
+// =============================================================================
+// RevisionBankPage — GET /progress/revision/all paginated envelope
+// =============================================================================
+
+/// Paginated response from `GET /progress/revision/all`.
+///
+/// Bundles the current page of [RevisionBankItem] items with the full
+/// [topicStats] list (already sorted weakest-first by the backend) so the
+/// Flutter client can power both the "All Problems" paginated view and the
+/// "Weakest Patterns" section from a single round-trip.
+class RevisionBankPage {
+  const RevisionBankPage({
+    required this.items,
+    required this.totalCount,
+    required this.page,
+    required this.limit,
+    this.topicStats = const [],
+  });
+
+  /// The items on the current page.
+  final List<RevisionBankItem> items;
+
+  /// Total number of items in the user's revision bank (pre-pagination).
+  final int totalCount;
+
+  final int page;
+  final int limit;
+
+  /// Full topic-confidence list, sorted by [RevisionTopicStat.avgConfidence]
+  /// ASC. Index 0 is the weakest pattern. Returned on every page.
+  final List<RevisionTopicStat> topicStats;
+
+  factory RevisionBankPage.fromJson(Map<String, dynamic> json) {
+    return RevisionBankPage(
+      items: (json['items'] as List<dynamic>?)
+              ?.map((e) => RevisionBankItem.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
+      page: (json['page'] as num?)?.toInt() ?? 1,
+      limit: (json['limit'] as num?)?.toInt() ?? 10,
+      topicStats: (json['topic_stats'] as List<dynamic>?)
+              ?.map((e) => RevisionTopicStat.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+    );
+  }
+}
+
 
 // =============================================================================
 // LogProgressResponse — POST /progress response

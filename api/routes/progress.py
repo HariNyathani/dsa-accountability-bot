@@ -1,13 +1,15 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Body, Request
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Body, Request, Query
+from typing import Optional, List
 
 from api.schemas.progress import (
     LogProgressRequest, LogProgressResponse, LogProgressData,
     PlatformLogRequest, PlatformLogResponse, PlatformLogParsedData,
+    RevisionDueItem, RevisionReviewRequest, RevisionReviewResponse,
+    RevisionBankItem, RevisionBankPage, TopicConfidenceStat,
 )
 from api.middleware.auth import get_current_user
-from services.progress_service import process_progress_submission
+from services.progress_service import process_progress_submission, CONFIDENCE_INTERVAL_DAYS
 from utils.resolvers import resolve_problem, RESOLVERS
 
 logger = logging.getLogger("dsa_bot.api.progress")
@@ -56,7 +58,9 @@ async def log_progress(
             content=final_content,
             source="web",
             override_date=request.target_date,
-            web_topics=web_topics if web_topics else None
+            web_topics=web_topics if web_topics else None,
+            confidence=request.confidence,
+            is_review=request.is_review,
         )
         
         if result.get("status") == "skipped":
@@ -175,6 +179,8 @@ async def log_platform_problem(
             user_id=user_id,
             content=content,
             source="web",
+            confidence=request.confidence,
+            is_review=request.is_review,
         )
 
         # ── Step 3: Direct insertion for non-LC platforms ─────────────
@@ -280,3 +286,182 @@ async def log_platform_problem(
     except Exception as e:
         logger.error(f"Error in platform log: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to log platform problem.")
+
+
+# ── Revision Bank (Spaced Repetition) Routes ─────────────────────────────────
+
+@router.get(
+    "/revision/due",
+    response_model=List[RevisionDueItem],
+    summary="Get due revision items",
+    description=(
+        "Return all LeetCode problems in the authenticated user's revision bank "
+        "whose next_review_at timestamp is <= NOW(), ordered by most overdue first."
+    ),
+)
+async def get_due_revision_items(user_id: int = Depends(require_auth)):
+    """
+    Fetch the authenticated user's SRS queue — problems that are ready for review.
+    Joins revision_bank with leetcode_problems for rich metadata.
+    """
+    try:
+        from db import database
+        items = await database.get_due_revision_items(user_id)
+        return items
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching due revision items: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch revision items.")
+
+
+@router.get(
+    "/revision/all",
+    response_model=RevisionBankPage,
+    summary="Get all revision bank items (paginated) with topic confidence stats",
+    description=(
+        "Returns the complete revision bank for the authenticated user — "
+        "all rows regardless of next_review_at — with server-side pagination. "
+        "Also returns topic_stats: per-topic average confidence sorted ascending "
+        "(index 0 = weakest pattern). Use this endpoint to power the 'All Problems' "
+        "and 'Weakest Patterns' views in the mobile dashboard."
+    ),
+)
+async def get_all_revision_items(
+    page: int = Query(1, ge=1, description="1-based page index"),
+    limit: int = Query(10, ge=1, le=100, description="Max items per page"),
+    user_id: int = Depends(require_auth),
+):
+    """
+    Fetch the user's complete revision bank (paginated) alongside topic-level
+    confidence aggregates.  Two DB calls are made sequentially (consistent
+    with the existing codebase pattern that uses asyncio.to_thread + pool).
+    """
+    try:
+        from db import database
+        page_data  = await database.get_all_revision_items(user_id, page, limit)
+        topic_data = await database.get_revision_topic_confidence(user_id)
+        return RevisionBankPage(
+            items        = [RevisionBankItem(**item) for item in page_data["items"]],
+            total_count  = page_data["total_count"],
+            page         = page,
+            limit        = limit,
+            topic_stats  = [TopicConfidenceStat(**t) for t in topic_data],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching all revision items: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch revision bank.")
+
+
+
+@router.post(
+    "/revision/review",
+    response_model=RevisionReviewResponse,
+    summary="Submit a spaced-repetition review",
+    description=(
+        "Record the outcome of a revision-bank review session. "
+        "Updates next_review_at in revision_bank via an idempotent UPSERT and "
+        "logs a progress_log row with is_review=True (does NOT update the streak)."
+    ),
+)
+async def submit_revision_review(
+    request: RevisionReviewRequest,
+    user_id: int = Depends(require_auth),
+):
+    """
+    Process a review submission:
+    1. Validate the problem exists in leetcode_problems.
+    2. Calculate next_review_at from confidence using CONFIDENCE_INTERVAL_DAYS.
+    3. Upsert revision_bank.
+    4. Log a progress_log row with is_review=True (streak unchanged).
+    """
+    from db import database
+    from datetime import datetime, timezone, timedelta
+    from utils.time_utils import today_str, now_iso
+    import json
+
+    try:
+        # ── Step 1: Validate problem exists in leetcode_problems ──────
+        # We use the resolver to look up the problem — it will return None
+        # if the question_id is not in our local DB.
+        match = await resolve_problem(f"#{request.problem_id}", platform="leetcode")
+        if not match:
+            raise HTTPException(
+                status_code=404,
+                detail=f"LeetCode problem #{request.problem_id} not found in the local database.",
+            )
+
+        # ── Step 2: Calculate next_review_at ─────────────────────────
+        interval_days = CONFIDENCE_INTERVAL_DAYS[request.confidence]
+        next_review_at_dt = datetime.now(timezone.utc) + timedelta(days=interval_days)
+        next_review_at_iso = next_review_at_dt.isoformat()
+
+        # ── Step 3: Upsert revision_bank ─────────────────────────────
+        await database.upsert_revision_bank(
+            user_id=user_id,
+            problem_id=request.problem_id,
+            confidence=request.confidence,
+            next_review_at=next_review_at_iso,
+        )
+
+        # ── Step 4: Log a progress_log row with is_review=True ───────
+        # We build a minimal parsed_fields payload and write directly to
+        # save_progress_log so we don't trigger streak/daily_status side-effects.
+        user = await database.get_user(user_id)
+        user_tz = user.get("timezone", "") if user else ""
+        today = today_str(user_tz)
+        now = now_iso(user_tz)
+
+        parsed_fields = {
+            "intent_type": "done",
+            "target_date": today,
+            "source": "revision_review",
+            "platform": "leetcode",
+            "log": [{
+                "canonical_topic": match.title,
+                "normalized_topic": match.title,
+                "question_count": 1,
+                "leetcode_title": match.title,
+                "leetcode_topics": match.topics_str,
+                "leetcode_difficulty": match.difficulty_norm,
+            }],
+        }
+
+        await database.save_progress_log(
+            user_id=user_id,
+            channel_id=0,
+            message_content=f"[SRS Review] #{request.problem_id} confidence={request.confidence}",
+            topics=match.title,
+            posted_at=now,
+            log_date=today,
+            message_type="done",
+            parsed_fields=json.dumps(parsed_fields),
+            platform="leetcode",
+            is_review=True,
+        )
+
+        logger.info(
+            f"[SRS] Review submitted: user={user_id}, "
+            f"problem_id={request.problem_id}, confidence={request.confidence}, "
+            f"next_review_at={next_review_at_iso}"
+        )
+
+        return RevisionReviewResponse(
+            success=True,
+            message=(
+                f"✅ Review logged for '{match.title}'. "
+                f"Next review in {interval_days} day{'s' if interval_days != 1 else ''}."
+            ),
+            next_review_at=next_review_at_iso,
+            confidence=request.confidence,
+            interval_days=interval_days,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting revision review: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to submit revision review.")
+
