@@ -131,9 +131,13 @@ class _RevisionTabState extends State<RevisionTab> {
   ) {
     final total   = provider.totalRevisionCount;
     final due     = provider.dueReviews.length;
-    final overdue = provider.allRevisionItems
-        .where((item) => item.daysRemaining < 0)
-        .length;
+    
+    final stats = provider.revisionTopicStats;
+    final double avgConfidence = stats.isEmpty 
+        ? 0.0 
+        : stats.fold(0.0, (sum, stat) => sum + stat.avgConfidence) / stats.length;
+    final String avgConfStr = '${avgConfidence.toStringAsFixed(1)} / 5';
+
     final loading = provider.isLoadingRevision;
 
     return Row(
@@ -152,11 +156,11 @@ class _RevisionTabState extends State<RevisionTab> {
         const SizedBox(width: 10),
         Expanded(
           child: _MetricCard(
-            icon: Icons.notifications_active_outlined,
-            label: 'DUE TODAY',
-            value: due.toString(),
+            icon: Icons.star_outline_rounded,
+            label: 'AVG CONFIDENCE',
+            value: avgConfStr,
             isLoading: loading,
-            accentColor: const Color(0xFFF59E0B),
+            accentColor: const Color(0xFF4CAF50),
             theme: theme,
             isDark: isDark,
           ),
@@ -164,11 +168,11 @@ class _RevisionTabState extends State<RevisionTab> {
         const SizedBox(width: 10),
         Expanded(
           child: _MetricCard(
-            icon: Icons.warning_amber_rounded,
-            label: 'OVERDUE',
-            value: overdue.toString(),
+            icon: Icons.notifications_active_outlined,
+            label: 'DUE TODAY',
+            value: due.toString(),
             isLoading: loading,
-            accentColor: const Color(0xFFE53935),
+            accentColor: const Color(0xFFF59E0B),
             theme: theme,
             isDark: isDark,
           ),

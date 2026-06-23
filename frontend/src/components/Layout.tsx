@@ -41,15 +41,24 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          {/* Personal dashboard link — only visible when authenticated */}
+          {/* Authenticated Links */}
           {authenticated && (
-            <NavLink
-              to="/me"
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
-              <span className="nav-icon">🔐</span>
-              My Dashboard
-            </NavLink>
+            <>
+              <NavLink
+                to="/me"
+                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+              >
+                <span className="nav-icon">🔐</span>
+                My Dashboard
+              </NavLink>
+              <NavLink
+                to="/revision"
+                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+              >
+                <span className="nav-icon">🧠</span>
+                Revision Bank
+              </NavLink>
+            </>
           )}
         </nav>
 

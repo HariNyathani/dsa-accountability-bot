@@ -32,6 +32,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
   // ── Platform log state ────────────────────────────────────
   const [platform, setPlatform] = useState<Platform>("leetcode");
   const [problemId, setProblemId] = useState("");
+  const [confidence, setConfidence] = useState<number | null>(3);
 
   // ── Manual submit (unchanged logic) ───────────────────────
   const handleManualSubmit = async (e: React.FormEvent) => {
@@ -112,6 +113,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
       const res = await api.logPlatformProblem({
         platform,
         problem_identifier: problemId.trim(),
+        confidence: platform.toLowerCase() === 'leetcode' ? confidence : null,
       });
 
       const data = (res as any).data || res;
@@ -157,7 +159,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
         <button
           type="button"
           className={`ql-mode-tab ${mode === "manual" ? "active" : ""}`}
-          onClick={() => { setMode("manual"); setFeedback(null); }}
+          onClick={() => { setMode("manual"); setFeedback(null); setConfidence(3); }}
           style={{
             flex: 1, padding: "9px 4px", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 600,
             background: mode === "manual" ? "rgba(99, 102, 241, 0.15)" : "transparent",
@@ -171,7 +173,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
         <button
           type="button"
           className={`ql-mode-tab ${mode === "platform" ? "active" : ""}`}
-          onClick={() => { setMode("platform"); setFeedback(null); }}
+          onClick={() => { setMode("platform"); setFeedback(null); setConfidence(3); }}
           style={{
             flex: 1, padding: "9px 4px", borderRadius: "8px", fontSize: "0.85rem", fontWeight: 600,
             background: mode === "platform" ? "rgba(245, 158, 11, 0.15)" : "transparent",
@@ -404,6 +406,44 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
               Accepts: Problem number • Title slug • Full URL
             </div>
           </div>
+
+          {platform === 'leetcode' && (
+            <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+              <label className="chart-title" style={{ display: 'block', marginBottom: '0.5rem' }}>
+                Confidence Rating (SRS Selection)
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    type="button"
+                    onClick={() => setConfidence(score)}
+                    className={`card ${confidence === score ? 'active' : ''}`}
+                    style={{
+                      flex: 1,
+                      padding: '0.5rem',
+                      textAlign: 'center',
+                      backgroundColor: confidence === score ? 'var(--accent, #6366f1)' : 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      cursor: 'pointer',
+                      color: '#fff',
+                      borderRadius: '6px',
+                      margin: 0
+                    }}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+              <span style={{ fontSize: '0.8rem', color: '#aaa', display: 'block', marginTop: '0.25rem' }}>
+                {confidence === 1 && '1 - Completely Forgot'}
+                {confidence === 2 && '2 - Hard / Barely Remember'}
+                {confidence === 3 && '3 - Okay / Needs Revision'}
+                {confidence === 4 && '4 - Good / Highly Confident'}
+                {confidence === 5 && '5 - Mastered / Perfect'}
+              </span>
+            </div>
+          )}
 
           {/* Submit */}
           <button

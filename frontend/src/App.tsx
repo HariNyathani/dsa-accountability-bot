@@ -10,6 +10,7 @@ import UserProfilePage from "./pages/UserProfilePage";
 import StatusPage from "./pages/StatusPage";
 import MyDashboardPage from "./pages/MyDashboardPage";
 import AdminPage from "./pages/AdminPage";
+import RevisionBankPage from "./pages/RevisionBankPage";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
 
             <Route path="status" element={<StatusPage />} />
             <Route path="me" element={<MyDashboardPage />} />
+            <Route path="revision" element={<RevisionBankPage />} />
 
             {/* Admin — guarded by AdminRoute (403 wall for non-admin) */}
             <Route element={<AdminRoute />}>

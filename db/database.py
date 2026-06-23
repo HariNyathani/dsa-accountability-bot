@@ -1038,7 +1038,7 @@ async def get_due_revision_items(user_id: int) -> List[dict]:
                     FROM revision_bank rb
                     JOIN leetcode_problems lp ON lp.question_id = rb.problem_id
                     WHERE rb.user_id = %s
-                      AND rb.next_review_at <= NOW()
+                      AND rb.next_review_at::date <= CURRENT_DATE
                     ORDER BY rb.next_review_at ASC
                 """, (user_id,))
                 rows = []

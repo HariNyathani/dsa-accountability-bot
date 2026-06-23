@@ -13,12 +13,18 @@ import '../providers/progress_provider.dart';
 ///
 /// Pushed via [Navigator.push] from [RevisionTab].
 ///
-/// Performance rules:
+/// Performance rules (v2 — June 2026):
 ///   - Renders at most 10 items per page (GPU budget).
 ///   - [RepaintBoundary] wraps the item list and the pagination bar.
 ///   - Page transitions use [AnimatedSwitcher] with a composited
 ///     [FadeTransition] + slide so there are no blank frames.
 ///   - All async callbacks are guarded with `if (!context.mounted) return;`.
+///   - **P1**: Date arithmetic eliminated from `build()` — uses the
+///     server-computed `daysRemaining` field from [RevisionBankItem].
+///   - **P2**: Star icons pre-built once per item, not per frame.
+///   - **P3**: Root `Consumer` replaced with `Selector` to prevent
+///     phantom rebuilds from unrelated provider mutations.
+///   - **P4**: `const` promotions on all static layout primitives.
 class AllProblemsView extends StatefulWidget {
   const AllProblemsView({super.key});
 
@@ -83,41 +89,68 @@ class _AllProblemsViewState extends State<AllProblemsView> {
         title: const Text('All Problems'),
         centerTitle: false,
       ),
-      body: Consumer<ProgressProvider>(
-        builder: (context, provider, _) {
-          final total    = provider.totalRevisionCount;
+      // ── P3: Selector instead of Consumer ────────────────────────────────
+      // Only rebuilds when the specific triple (items, totalCount, loading)
+      // changes — ignores unrelated provider mutations like submitReview().
+      body: Selector<ProgressProvider,
+          ({List<RevisionBankItem> items, int total, bool loading})>(
+        selector: (_, p) => (
+          items: p.allRevisionItems,
+          total: p.totalRevisionCount,
+          loading: p.isLoadingRevision,
+        ),
+        builder: (context, data, _) {
+          final total    = data.total;
           final lastPage = math.max(1, (total / _pageSize).ceil());
-          final loading  = provider.isLoadingRevision;
-          final items    = provider.allRevisionItems;
+          final loading  = data.loading;
+          final items    = data.items;
 
           return Column(
             children: [
-              // ── Paginated list ────────────────────────────────────────────
+              // ── Paginated list ──────────────────────────────────────────
+              //
+              // Ghosting fix (June 2026):
+              //   1. Composite key encodes (page, loading) so the skeleton
+              //      and the loaded item list are distinct identities.
+              //   2. layoutBuilder paints ONLY the incoming child — the
+              //      outgoing child is removed immediately instead of
+              //      lingering as a semi-transparent ghost behind the
+              //      incoming FadeTransition.
+              //   3. Duration shortened to 200ms to eliminate the visual
+              //      window where both layers could overlap.
               Expanded(
                 child: RepaintBoundary(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    switchInCurve: Curves.easeOutQuint,
-                    switchOutCurve: Curves.easeInCubic,
+                    duration: const Duration(milliseconds: 200),
+                    switchInCurve: Curves.easeOutCubic,
                     transitionBuilder: (child, animation) {
                       final slide = Tween<Offset>(
-                        begin: Offset(_slideDirection * 0.12, 0),
+                        begin: Offset(_slideDirection * 0.08, 0),
                         end: Offset.zero,
                       ).animate(CurvedAnimation(
                         parent: animation,
-                        curve: Curves.easeOutQuint,
+                        curve: Curves.easeOutCubic,
                       ));
                       return FadeTransition(
                         opacity: animation,
                         child: SlideTransition(position: slide, child: child),
                       );
                     },
+                    // Only paint the incoming child. The default
+                    // layoutBuilder stacks both old and new in a Stack,
+                    // causing the double-exposure ghosting.
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return currentChild ?? const SizedBox.shrink();
+                    },
                     child: loading
-                        ? _buildSkeletonList(colorScheme, theme)
+                        ? KeyedSubtree(
+                            key: ValueKey<String>('skeleton_$_currentPage'),
+                            child: _buildSkeletonList(colorScheme, theme),
+                          )
                         : items.isEmpty
                             ? _buildEmptyState(theme, colorScheme)
                             : _buildItemList(
-                                key: ValueKey<int>(_currentPage),
+                                key: ValueKey<String>('page_$_currentPage'),
                                 items: items,
                                 theme: theme,
                                 colorScheme: colorScheme,
@@ -127,7 +160,7 @@ class _AllProblemsViewState extends State<AllProblemsView> {
                 ),
               ),
 
-              // ── Pagination bar ────────────────────────────────────────────
+              // ── Pagination bar ──────────────────────────────────────────
               if (!loading || total > 0)
                 RepaintBoundary(
                   child: _PaginationBar(
@@ -246,6 +279,46 @@ class _AllProblemsViewState extends State<AllProblemsView> {
 // _ProblemCard — single revision-bank item card
 // =============================================================================
 
+/// ── P4: Shared const primitives ─────────────────────────────────────────────
+/// Hoisted to file scope so every card instance shares the same canonical
+/// objects. Eliminates ~20 redundant allocations per card per frame.
+const _kCardPadding = EdgeInsets.all(14);
+const _kPillPadding = EdgeInsets.symmetric(horizontal: 7, vertical: 3);
+const _kPillRadius  = BorderRadius.all(Radius.circular(6));
+const _kStarSize    = 14.0;
+const _kAmberColor  = Color(0xFFF59E0B);
+
+/// ── P4: Static platform badge ───────────────────────────────────────────────
+/// The 'LC' badge never changes — extracted as a top-level const widget so it
+/// is canonicalized once and reused across all card instances without any
+/// per-frame allocation.
+class _PlatformBadge extends StatelessWidget {
+  const _PlatformBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: _kPillPadding,
+      decoration: BoxDecoration(
+        color: _kAmberColor.withValues(alpha: 0.14),
+        borderRadius: _kPillRadius,
+        border: Border.all(
+          color: _kAmberColor.withValues(alpha: 0.30),
+          width: 0.6,
+        ),
+      ),
+      child: const Text(
+        'LC',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: _kAmberColor,
+        ),
+      ),
+    );
+  }
+}
+
 class _ProblemCard extends StatefulWidget {
   const _ProblemCard({
     required this.item,
@@ -266,6 +339,42 @@ class _ProblemCard extends StatefulWidget {
 class _ProblemCardState extends State<_ProblemCard> {
   bool _pressed = false;
 
+  // ── P2: Pre-built star row ─────────────────────────────────────────────────
+  // Built once in initState (and didUpdateWidget if the item changes) instead
+  // of allocating 5 Icon + Color objects inside build() on every frame.
+  late Widget _starRow;
+
+  @override
+  void initState() {
+    super.initState();
+    _starRow = _buildStarRow(widget.item.confidenceLast, widget.colorScheme);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProblemCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.confidenceLast != widget.item.confidenceLast ||
+        oldWidget.colorScheme != widget.colorScheme) {
+      _starRow = _buildStarRow(widget.item.confidenceLast, widget.colorScheme);
+    }
+  }
+
+  /// Builds the 5-star confidence meter once, reusable across frames.
+  static Widget _buildStarRow(int confidence, ColorScheme cs) {
+    final dimColor = cs.onSurface.withValues(alpha: 0.25);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (i) {
+        final filled = i < confidence;
+        return Icon(
+          filled ? Icons.star_rounded : Icons.star_outline_rounded,
+          size: _kStarSize,
+          color: filled ? _kAmberColor : dimColor,
+        );
+      }),
+    );
+  }
+
   static Color _difficultyColor(String d) => switch (d.toLowerCase()) {
         'easy'   => const Color(0xFF4CAF50),
         'medium' => const Color(0xFFFF9800),
@@ -273,29 +382,33 @@ class _ProblemCardState extends State<_ProblemCard> {
         _        => const Color(0xFF9E9E9E),
       };
 
-  static String _daysLabel(double days) {
-    if (days < -0.5) {
-      final d = days.abs().ceil();
-      return '$d d overdue';
-    }
-    if (days < 1.0) return 'Due today';
-    final d = days.floor();
-    return 'In $d day${d == 1 ? '' : 's'}';
+  // ── P1: Uses model's pre-computed daysRemaining ────────────────────────────
+  // No more DateTime.now(), DateTime.tryParse(), .toLocal(), or midnight
+  // truncation running in the build loop. The server already computes this.
+
+  static String _daysLabel(int days) {
+    if (days == 0) return 'Due Today';
+    if (days == 1) return 'Due Tomorrow';
+    if (days > 1) return 'Due in $days days';
+    return 'Overdue by ${days.abs()} days';
   }
 
-  static Color _daysColor(double days) {
-    if (days < 0) return const Color(0xFFE53935);     // overdue — red
-    if (days < 1) return const Color(0xFFF59E0B);     // today — amber
-    return const Color(0xFF4CAF50);                   // upcoming — green
+  static Color _daysColor(int days) {
+    if (days == 0) return const Color(0xFFE53935);     // due today — red
+    if (days == 1) return const Color(0xFFF59E0B);     // tomorrow — yellow
+    if (days > 1) return const Color(0xFF9E9E9E);      // upcoming — neutral
+    return const Color(0xFFB71C1C);                    // overdue — deep red
   }
 
   @override
   Widget build(BuildContext context) {
     final item      = widget.item;
     final theme     = widget.theme;
-    final cs        = widget.colorScheme;
     final diffColor = _difficultyColor(item.difficulty);
-    final daysColor = _daysColor(item.daysRemaining);
+
+    // ── P1: Server-computed field, zero per-frame cost ──────────────────────
+    final int days  = item.daysRemaining.round();
+    final daysColor = _daysColor(days);
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -307,7 +420,7 @@ class _ProblemCardState extends State<_ProblemCard> {
         curve: Curves.easeOutCubic,
         child: GlassCard(
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: _kCardPadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -326,27 +439,8 @@ class _ProblemCardState extends State<_ProblemCard> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Platform badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.30),
-                          width: 0.6,
-                        ),
-                      ),
-                      child: const Text(
-                        'LC',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFFF59E0B),
-                        ),
-                      ),
-                    ),
+                    // ── P4: Extracted const widget ──────────────────────────
+                    const _PlatformBadge(),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -356,11 +450,10 @@ class _ProblemCardState extends State<_ProblemCard> {
                   children: [
                     // Difficulty pill
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                      padding: _kPillPadding,
                       decoration: BoxDecoration(
                         color: diffColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: _kPillRadius,
                       ),
                       child: Text(
                         item.difficulty,
@@ -373,35 +466,20 @@ class _ProblemCardState extends State<_ProblemCard> {
                     ),
                     const SizedBox(width: 10),
 
-                    // Star confidence meter (5 stars)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(5, (i) {
-                        final filled = i < item.confidenceLast;
-                        return Icon(
-                          filled
-                              ? Icons.star_rounded
-                              : Icons.star_outline_rounded,
-                          size: 14,
-                          color: filled
-                              ? const Color(0xFFF59E0B)
-                              : cs.onSurface.withValues(alpha: 0.25),
-                        );
-                      }),
-                    ),
+                    // ── P2: Pre-built star row (no per-frame allocs) ────────
+                    _starRow,
 
                     const Spacer(),
 
                     // Days ticker
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                      padding: _kPillPadding,
                       decoration: BoxDecoration(
                         color: daysColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: _kPillRadius,
                       ),
                       child: Text(
-                        _daysLabel(item.daysRemaining),
+                        _daysLabel(days),
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,

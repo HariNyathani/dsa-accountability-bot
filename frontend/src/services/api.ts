@@ -142,10 +142,17 @@ export const api = {
   logRestDay: () =>
     request<APIResponse<any>>("/progress/rest", { method: "POST", body: JSON.stringify({}) }),
 
-  logPlatformProblem: (data: { platform: string; problem_identifier: string }) =>
+  logPlatformProblem: (data: { platform: string; problem_identifier: string; confidence?: number | null }) =>
     request<APIResponse<any>>("/progress/platform", { method: "POST", body: JSON.stringify(data) }),
 
   getExportUrl: (userId: string) => `${BASE}/users/${userId}/export`,
+
+  // Revision Bank
+  getDueRevisionItems: () => request<any>("/progress/revision/due"),
+  getAllRevisionItems: (page = 1, limit = 10) =>
+    request<any>(`/progress/revision/all?page=${page}&limit=${limit}`),
+  submitRevisionReview: (data: { problem_id: number; confidence: number }) =>
+    request<APIResponse<any>>("/progress/revision/review", { method: "POST", body: JSON.stringify(data) }),
 
   // Admin Panel — protected by require_admin on the backend
   adminUsers: () => request<APIResponse<{ users: any[]; total: number }>>("/admin/users"),

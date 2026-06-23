@@ -53,23 +53,35 @@ class ProgressProvider extends ChangeNotifier {
   // All Revision Items (full bank, paginated) — lazy loaded by RevisionTab
   // ---------------------------------------------------------------------------
 
-  /// Full revision bank — includes items not yet due. Populated by
-  /// [fetchAllRevisionItems]; empty until the Revision Tab is first opened.
-  List<RevisionBankItem> _allRevisionItems = [];
+  /// In-memory page cache: `page number (1-based) → items`.
+  /// Populated on first access, served instantly on subsequent visits.
+  /// Invalidated by [invalidateRevisionCache] after data mutations.
+  final Map<int, List<RevisionBankItem>> _revisionPageCache = {};
+
+  /// The page number currently being presented to the UI.
+  int _currentRevisionPage = 1;
+
+  /// Tracks which pages have a silent pre-fetch already in flight
+  /// to avoid duplicate network requests.
+  final Set<int> _prefetchingPages = {};
+
+  /// Public getter — returns the cached items for the current page,
+  /// or an empty list if the page hasn't been fetched yet.
   List<RevisionBankItem> get allRevisionItems =>
-      List.unmodifiable(_allRevisionItems);
+      List.unmodifiable(_revisionPageCache[_currentRevisionPage] ?? const []);
 
   /// Total count of items in the revision bank (pre-pagination).
   int _totalRevisionCount = 0;
   int get totalRevisionCount => _totalRevisionCount;
 
   /// Per-topic SRS confidence aggregates, sorted weakest-first (ASC).
-  /// Populated alongside [_allRevisionItems] by [fetchAllRevisionItems].
+  /// Populated alongside the revision items by [fetchAllRevisionItems].
   List<RevisionTopicStat> _revisionTopicStats = [];
   List<RevisionTopicStat> get revisionTopicStats =>
       List.unmodifiable(_revisionTopicStats);
 
-  /// True while [fetchAllRevisionItems] is in flight.
+  /// True while [fetchAllRevisionItems] is doing a *visible* network fetch
+  /// (i.e. a cache miss). Silent pre-fetches never set this to `true`.
   bool _isLoadingRevision = false;
   bool get isLoadingRevision => _isLoadingRevision;
 
@@ -95,27 +107,45 @@ class ProgressProvider extends ChangeNotifier {
   /// Fetches the complete revision bank (paginated) and topic-confidence
   /// aggregates from `GET /progress/revision/all`.
   ///
-  /// Called lazily from the Revision Tab's `initState` \u2192 `addPostFrameCallback`
+  /// Called lazily from the Revision Tab's `initState` → `addPostFrameCallback`
   /// so the main dashboard startup path is not affected.
+  ///
+  /// ### Page cache (June 2026)
+  /// Previously, every page change hit the network and showed a skeleton.
+  /// Now, fetched pages are cached in [_revisionPageCache]. On a cache hit
+  /// the items are emitted **instantly** with no loading state. On a cache
+  /// miss the skeleton is shown, the page is fetched, cached, and emitted.
+  /// After every successful load, [_silentPrefetch] fires for `page + 1`
+  /// so the next page is ready before the user taps "Next".
   ///
   /// [page] is 1-based. [limit] caps at 100 (enforced server-side).
   /// Topic stats are refreshed on every call so they stay current after a
   /// review submission changes the underlying confidence scores.
   Future<void> fetchAllRevisionItems({int page = 1, int limit = 10}) async {
+    _currentRevisionPage = page;
+
+    // ── Cache hit: emit instantly, no loading skeleton ──────────────────
+    if (_revisionPageCache.containsKey(page)) {
+      // Topic stats & total count are already set from the original fetch.
+      // Just notify so the Selector picks up the (potentially new) page.
+      if (!_disposed) notifyListeners();
+
+      // Still silently prefetch the next page if it isn't cached yet.
+      _silentPrefetch(page: page + 1, limit: limit);
+      return;
+    }
+
+    // ── Cache miss: show skeleton, fetch from network ───────────────────
     _isLoadingRevision = true;
     if (!_disposed) notifyListeners();
 
     try {
-      final res = await apiClient.dio.get(
-        '/progress/revision/all',
-        queryParameters: {'page': page, 'limit': limit},
-      );
-      final pageData = RevisionBankPage.fromJson(
-        res.data as Map<String, dynamic>,
-      );
-      _allRevisionItems   = pageData.items;
-      _totalRevisionCount = pageData.totalCount;
-      _revisionTopicStats = pageData.topicStats; // sorted ASC by backend
+      final pageData = await _fetchRevisionPage(page: page, limit: limit);
+      if (pageData != null) {
+        _revisionPageCache[page] = pageData.items;
+        _totalRevisionCount      = pageData.totalCount;
+        _revisionTopicStats      = pageData.topicStats;
+      }
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
@@ -124,6 +154,63 @@ class ProgressProvider extends ChangeNotifier {
       _isLoadingRevision = false;
       if (!_disposed) notifyListeners();
     }
+
+    // ── Silent prefetch: buffer the next page in the background ─────────
+    _silentPrefetch(page: page + 1, limit: limit);
+  }
+
+  /// Drops the entire page cache so the next [fetchAllRevisionItems] call
+  /// hits the network. Called after data mutations (log, review, refresh)
+  /// to keep cached pages consistent with the backend.
+  void invalidateRevisionCache() {
+    _revisionPageCache.clear();
+    _prefetchingPages.clear();
+  }
+
+  /// Fetches a single revision page from the backend.
+  /// Pure network call — no state mutation, no notifyListeners.
+  Future<RevisionBankPage?> _fetchRevisionPage({
+    required int page,
+    required int limit,
+  }) async {
+    final res = await apiClient.dio.get(
+      '/progress/revision/all',
+      queryParameters: {'page': page, 'limit': limit},
+    );
+    return RevisionBankPage.fromJson(
+      res.data as Map<String, dynamic>,
+    );
+  }
+
+  /// Silently fetches [page] in the background and stores it in the cache.
+  /// Does NOT set [_isLoadingRevision] or call [notifyListeners] — the UI
+  /// remains completely unaware until the user actually navigates to that
+  /// page and [fetchAllRevisionItems] finds the cache hit.
+  void _silentPrefetch({required int page, required int limit}) {
+    // Don't prefetch if already cached, already in-flight, or past the end.
+    if (_revisionPageCache.containsKey(page)) return;
+    if (_prefetchingPages.contains(page)) return;
+    if (_totalRevisionCount > 0) {
+      final lastPage = (_totalRevisionCount / limit).ceil();
+      if (page > lastPage) return;
+    }
+
+    _prefetchingPages.add(page);
+
+    // Fire-and-forget — errors are silently swallowed since this is
+    // speculative buffering; the user hasn't asked for this page yet.
+    _fetchRevisionPage(page: page, limit: limit).then((pageData) {
+      if (pageData != null && !_disposed) {
+        _revisionPageCache[page] = pageData.items;
+        // Also keep totalCount / topicStats fresh from the latest response.
+        _totalRevisionCount = pageData.totalCount;
+        _revisionTopicStats = pageData.topicStats;
+      }
+    }).catchError((_) {
+      // Silently ignore — prefetch is best-effort.
+    }).whenComplete(() {
+      _prefetchingPages.remove(page);
+    });
   }
 
   Future<void> fetchAll() async {
@@ -155,10 +242,10 @@ class ProgressProvider extends ChangeNotifier {
 
       _dueReviews = (results[4] as List<RevisionDueItem>?) ?? [];
 
-      // Invalidate revision bank items to keep data synchronous across tabs
-      if (_allRevisionItems.isNotEmpty || true) {
-        await fetchAllRevisionItems(page: 1, limit: 10);
-      }
+      // Invalidate revision bank cache so stale pages aren't served after
+      // a data mutation, then re-fetch page 1 eagerly.
+      invalidateRevisionCache();
+      await fetchAllRevisionItems(page: 1, limit: 10);
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
