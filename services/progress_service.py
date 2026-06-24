@@ -304,39 +304,64 @@ async def process_progress_submission(
         logger.info(f"[GATE:URL_OR_LOG] user={user_id} is_log={is_log_command} has_url={bool(url_match)}")
 
         if url_match:
-            # Use the full URL as the identifier — resolve_problem + detector
-            # will extract the right platform from it.
-            target = url_match.group(0)
-            original_display = url_match.group(0)
+            # Single URL — resolve as before
+            targets = [url_match.group(0)]
+            is_bare_ids = False
         else:
-            target = content[5:].strip()  # strip "!log "
-            original_display = target
-
-        # Use the unified resolver (auto-detects platform)
-        resolved = await resolve_problem(target)
-
-        if not resolved:
-            if is_log_command:
-                return {
-                    "status": "error",
-                    "feedback_message": "❌ Invalid ID/URL or problem not found."
-                }
+            raw_arg = content[5:].strip()  # strip "!log "
+            # Detect a bare numeric-list input (e.g. "1,2" or "1 2" or "1, 2").
+            # If the string contains ONLY digits, commas, and spaces it is treated
+            # as a list of LeetCode IDs.  Otherwise fall back to the original
+            # single-identifier resolve (URL slug, Codeforces ID, title).
+            import re as _re
+            if _re.fullmatch(r'[\d,\s]+', raw_arg):
+                # Aggressive extraction: pull every contiguous digit sequence
+                extracted = _re.findall(r'\d+', raw_arg)
+                targets = [f"#{n}" for n in extracted]  # prepend '#' → numeric ID path
+                is_bare_ids = True
             else:
-                return {
-                    "status": "skipped"
-                }
+                targets = [raw_arg]
+                is_bare_ids = False
 
-        msg_type = "done"
-        parsed_fields_dict["intent_type"] = "done"
-        parsed_fields_dict["platform"] = resolved.platform
+        first_error: str | None = None
+        for target in targets:
+            original_display = target
+            resolved = await resolve_problem(target)
 
-        match_dict = _resolved_to_match_dict(resolved)
-        match_dict["original"] = original_display
-        match_dict["question_count"] = 1
-        leetcode_matches.append(match_dict)
+            if not resolved:
+                if is_log_command and not is_bare_ids:
+                    # Single-identifier mode — return hard error immediately
+                    return {
+                        "status": "error",
+                        "feedback_message": "❌ Invalid ID/URL or problem not found."
+                    }
+                elif is_log_command and is_bare_ids:
+                    # Multi-ID mode — collect first error, continue other IDs
+                    if first_error is None:
+                        first_error = target.lstrip('#')
+                    logger.warning(f"[GATE:LOG_BATCH] ID {target!r} not found — skipping")
+                    continue
+                else:
+                    return {"status": "skipped"}
 
-        parsed_fields_dict["log"].append(_resolved_to_log_entry(resolved))
-        topics.append(resolved.title)
+            msg_type = "done"
+            parsed_fields_dict["intent_type"] = "done"
+            parsed_fields_dict["platform"] = resolved.platform
+
+            match_dict = _resolved_to_match_dict(resolved)
+            match_dict["original"] = original_display
+            match_dict["question_count"] = 1
+            leetcode_matches.append(match_dict)
+
+            parsed_fields_dict["log"].append(_resolved_to_log_entry(resolved))
+            topics.append(resolved.title)
+
+        # If every ID in a batch failed, surface an error
+        if is_log_command and is_bare_ids and not topics and not parsed_fields_dict["log"]:
+            return {
+                "status": "error",
+                "feedback_message": "❌ None of the provided IDs could be found. Check the numbers and try again."
+            }
         
     elif web_topics is not None or content_lower.startswith("!qdone") or content_lower.startswith("!qn"):
         logger.info(f"[GATE:QDONE_QN] user={user_id} web_topics={web_topics is not None}")
@@ -344,8 +369,20 @@ async def process_progress_submission(
         if web_topics is not None:
             qdone_results = [(t["canonical_topic"], t["question_count"], t.get("difficulty")) for t in web_topics]
         elif is_qn:
-            target_id = content[4:].strip()
-            qdone_results = [(target_id, 1, None)]
+            # Aggressive extraction: pull every contiguous digit sequence from
+            # the argument string so "187,188, 189 190" → ['187','188','189','190'].
+            # Non-digit tokens (Codeforces IDs like "4A", "2211B") are also kept
+            # so CF support is not broken: re.findall(r'\d+', ...) would strip the
+            # letter suffix, so we split on commas/spaces and strip each token instead.
+            import re as _re
+            raw_qn_arg = content[4:].strip()  # strip "!qn "
+            # If the whole arg is purely numeric separators, extract digit runs.
+            # Otherwise split on comma/whitespace to preserve mixed tokens (e.g. "4A").
+            if _re.fullmatch(r'[\d,\s]+', raw_qn_arg):
+                tokens = _re.findall(r'\d+', raw_qn_arg)
+            else:
+                tokens = [t.strip() for t in _re.split(r'[,\s]+', raw_qn_arg) if t.strip()]
+            qdone_results = [(tok, 1, None) for tok in tokens]
         else:
             try:
                 qdone_results = [(canonical, count, diff) for canonical, count, diff, raw in parse_qdone(content)]
@@ -459,6 +496,7 @@ async def process_progress_submission(
                             "official_topics": item_match["topics_str"],
                             "score": item_match["score"],
                             "question_count": 1,
+                            "question_id": item_match["question_id"],
                         })
                         parsed_fields_dict["log"].append({
                             "canonical_topic": item_match["title"],
@@ -524,6 +562,7 @@ async def process_progress_submission(
                             "official_topics": match["topics_str"],
                             "score": match["score"],
                             "question_count": 1,
+                            "question_id": match["question_id"],
                         })
                         parsed_fields_dict["log"].append({
                             "canonical_topic": match["title"],

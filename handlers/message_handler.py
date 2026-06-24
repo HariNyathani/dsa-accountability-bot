@@ -13,6 +13,7 @@ from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics, topics_to_str
 from utils.streak_utils import on_post
 from utils.command_parser import parse_qdone
+from ui.confidence_view import ConfidenceView
 import json
 import config
 
@@ -162,3 +163,34 @@ async def handle_message(message: discord.Message, bot: discord.Client):
         await message.reply(feedback_msg, delete_after=3600)  # 1 hour — keeps channel clean
     except:
         pass
+
+    # ── SRS Confidence Prompt ─────────────────────────────────────────────────
+    # Send one dropdown prompt per resolved LeetCode problem that has a
+    # numeric question_id.  Batch logs (!qdone 73, 75) get separate replies
+    # so each problem gets an independent confidence score.
+    srs_candidates = [
+        m for m in result.get("leetcode_matches", [])
+        if m.get("question_id") and str(m["question_id"]).isdigit()
+    ]
+
+    for match in srs_candidates:
+        problem_id = int(match["question_id"])
+        title      = match.get("matched_title") or match.get("original", "this problem")
+        difficulty = match.get("difficulty", "")
+        diff_badge = f" [{difficulty}]" if difficulty else ""
+
+        prompt_text = (
+            f"⭐ **How confident do you feel about: {title}{diff_badge}?**\n"
+            f"-# Select a rating below — auto-saves as 🟡 Okay in 60 s."
+        )
+
+        view = ConfidenceView(
+            author_id=message.author.id,
+            problem_id=problem_id,
+            user_id=message.author.id,
+        )
+        try:
+            conf_msg = await message.reply(prompt_text, view=view)
+            view.message = conf_msg   # required so on_timeout can edit the message
+        except discord.HTTPException as exc:
+            logger.warning(f"[SRS] Could not send confidence prompt: {exc}")

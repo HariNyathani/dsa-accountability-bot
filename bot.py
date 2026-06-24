@@ -204,7 +204,17 @@ def _setup_scheduler():
         replace_existing=True,
     )
 
-    logger.info("Scheduler configured: minutely reminders + weekly summary.")
+    # SRS Digest — every day at 8:00 AM (default tz)
+    # Sends each user a DM listing any revision-bank problems that are due
+    # today or overdue, so they can knock them out before their daily solve.
+    scheduler.add_job(
+        _run_daily_srs,
+        CronTrigger(hour=8, minute=0, timezone=tz),
+        id="srs_digest",
+        replace_existing=True,
+    )
+
+    logger.info("Scheduler configured: minutely reminders + weekly summary + 8 AM SRS digest.")
 
 
 async def _run_reminders():
@@ -212,6 +222,100 @@ async def _run_reminders():
 
 async def _run_weekly_summary():
     await generate_weekly_summary_all(bot, send=True)
+
+async def _run_daily_srs():
+    await _run_srs_digest(bot)
+
+
+async def _run_srs_digest(bot: commands.Bot) -> None:
+    """
+    8 AM daily cron: query every user's due revision-bank items and send
+    a single DM per user summarising what they need to review today.
+
+    Behaviour
+    ---------
+    - Uses itertools.groupby on the sorted result so we make one DB call
+      total, not one call per user.
+    - Gracefully skips users whose DM channel cannot be created (DMs
+      disabled, bot blocked, etc.).
+    - Non-fatal: a failure for one user does not abort the loop for others.
+    """
+    import itertools
+    logger.info("[SRS:DIGEST] Running daily SRS digest...")
+
+    try:
+        all_due = await database.get_all_due_revision_items()
+    except Exception as exc:
+        logger.error(f"[SRS:DIGEST] Failed to fetch due items: {exc}", exc_info=True)
+        return
+
+    if not all_due:
+        logger.info("[SRS:DIGEST] No items due today — skipping DMs.")
+        return
+
+    # all_due is already sorted by user_id ASC, next_review_at ASC
+    for user_id, items_iter in itertools.groupby(all_due, key=lambda r: r["user_id"]):
+        items = list(items_iter)
+        count = len(items)
+
+        # ── Build the DM embed ───────────────────────────────────────────
+        embed = discord.Embed(
+            title=f"📥 {count} DSA Problem{'s' if count != 1 else ''} Due for Review Today",
+            description=(
+                f"Good morning! Your spaced-repetition queue has **{count} item{'s' if count != 1 else ''}** "
+                f"waiting.\nKnock them out before your daily solve to keep your memory sharp! 💪"
+            ),
+            color=0x5865F2,  # Discord blurple — neutral, not alarming
+        )
+
+        _DIFF_EMOJI = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴", "Expert": "💀"}
+        _CONF_EMOJI = {1: "🔴", 2: "⚪", 3: "🟡", 4: "🟢", 5: "🟢"}
+
+        lines = []
+        for i, item in enumerate(items, start=1):
+            diff = item.get("difficulty") or "Unknown"
+            diff_emoji = _DIFF_EMOJI.get(diff, "⬜")
+            conf = item.get("confidence_last", 3)
+            conf_emoji = _CONF_EMOJI.get(conf, "🟡")
+            reviews = item.get("review_count", 0)
+            slug = item.get("title_slug", "")
+            lc_url = f"https://leetcode.com/problems/{slug}/" if slug else ""
+            title_display = f"[{item['title']}]({lc_url})" if lc_url else item["title"]
+
+            lines.append(
+                f"`{i:02d}.` {diff_emoji} {title_display} — "
+                f"Last confidence: {conf_emoji} {conf}/5  ·  {reviews} review{'s' if reviews != 1 else ''}"
+            )
+
+        # Discord embed field value has a 1024-char limit; chunk if needed
+        chunk, chunks = [], []
+        for line in lines:
+            if sum(len(l) + 1 for l in chunk) + len(line) > 1000:
+                chunks.append(chunk)
+                chunk = []
+            chunk.append(line)
+        if chunk:
+            chunks.append(chunk)
+
+        for idx, chunk in enumerate(chunks):
+            field_name = "📚 Problems" if idx == 0 else "​"  # zero-width space for continuation
+            embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+
+        embed.set_footer(text="💡 Log a review with !qn <id> and rate your confidence to reschedule.")
+
+        # ── Send DM ─────────────────────────────────────────────────────
+        try:
+            discord_user = await bot.fetch_user(user_id)
+            await discord_user.send(embed=embed)
+            logger.info(f"[SRS:DIGEST] Sent digest to user_id={user_id} ({count} items)")
+        except discord.Forbidden:
+            logger.info(f"[SRS:DIGEST] DMs disabled for user_id={user_id} — skipping")
+        except discord.NotFound:
+            logger.warning(f"[SRS:DIGEST] Discord user not found for user_id={user_id}")
+        except Exception as exc:
+            logger.error(f"[SRS:DIGEST] Failed to DM user_id={user_id}: {exc}", exc_info=True)
+
+    logger.info(f"[SRS:DIGEST] Digest complete. Processed {len(all_due)} due item(s).")
 
 
 # ── Registration Commands ────────────────────────────────────────────────────

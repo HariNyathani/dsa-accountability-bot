@@ -1059,6 +1059,47 @@ async def get_due_revision_items(user_id: int) -> List[dict]:
     return await _run_sync(_sync)
 
 
+async def get_all_due_revision_items() -> List[dict]:
+    """
+    Bulk-fetch ALL revision-bank items that are due TODAY OR OVERDUE,
+    across every active user — for use by the daily SRS digest cron job.
+
+    Returns a flat list of dicts.  Each dict includes:
+      - user_id, problem_id, confidence_last, next_review_at,
+        review_count, title, difficulty, title_slug
+    Ordered by user_id ASC, next_review_at ASC so the caller can iterate
+    with itertools.groupby(results, key=lambda r: r["user_id"]).
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT
+                        rb.user_id,
+                        rb.problem_id,
+                        rb.confidence_last,
+                        rb.next_review_at,
+                        rb.review_count,
+                        lp.title,
+                        lp.title_slug,
+                        lp.difficulty
+                    FROM revision_bank rb
+                    JOIN leetcode_problems lp ON lp.question_id = rb.problem_id
+                    JOIN users u ON u.user_id = rb.user_id
+                    WHERE u.is_active = 1
+                      AND rb.next_review_at::date <= CURRENT_DATE
+                    ORDER BY rb.user_id ASC, rb.next_review_at ASC
+                """)
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    if d.get("next_review_at"):
+                        d["next_review_at"] = d["next_review_at"].isoformat()
+                    rows.append(d)
+                return rows
+    return await _run_sync(_sync)
+
+
 async def get_all_revision_items(
     user_id: int,
     page: int = 1,
