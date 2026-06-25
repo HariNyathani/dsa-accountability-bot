@@ -1,0 +1,149 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   DSA Accountability — Design Tokens
+   Single source of truth. Mirrors mobile/lib/core/theme/app_theme.dart exactly.
+   Driven by [data-theme] on <html>. DO NOT inline hex values anywhere else.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Geometry (app_theme.dart:40-42) ────────────────────────────────────── */
+  --radius-card: 32px; /* app_theme.dart:40 */
+  --radius-button: 24px; /* app_theme.dart:41 */
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-sm: 14px;
+  --border-width: 0.5px; /* app_theme.dart:42 */
+
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
+  --sidebar-w: 264px;
+  --content-pad-x: clamp(20px, 4vw, 48px);
+  --content-pad-y: clamp(24px, 4vw, 40px);
+
+  /* ── Typography ─────────────────────────────────────────────────────────── */
+  --font: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* ── Difficulty / status tokens (theme-independent) ─────────────────────── */
+  --diff-easy: #4caf50; /* log_progress_sheet.dart:73 */
+  --diff-medium: #ff9800; /* log_progress_sheet.dart:74 */
+  --diff-hard: #e53935; /* log_progress_sheet.dart:75 */
+  --diff-expert: #9f1239; /* expert (CF 2000+) — derived */
+  --gold: #f59e0b; /* log_progress_sheet.dart:741 */
+  --rest: #6d8ab0; /* rest-day slate-blue override (Heatmap.tsx legacy) */
+
+  /* ── CTA gradient (log_progress_sheet.dart:1230-1238) ────────────────────── */
+  --cta-gradient: linear-gradient(180deg, #9e6f4a, #7a5234);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   LIGHT MODE — Editorial Journal Aesthetic
+   ────────────────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-scaffold: #f2e2de; /* Alabaster Porcelain Beige — app_theme.dart:18 */
+  --bg-surface: #f2e2de; /* app_theme.dart:19 */
+  --accent: #7a5234; /* Deep Chestnut Espresso — app_theme.dart:20 */
+  --on-accent: #ffffff; /* app_theme.dart:21 */
+  --text-primary: #3e2723; /* Deep rich brown — app_theme.dart:22 */
+  --text-secondary: #706a60; /* Stone gray — app_theme.dart:23 */
+  --border: rgba(28, 26, 23, 0.1); /* ~10% — app_theme.dart:24 */
+  --border-strong: rgba(28, 26, 23, 0.18);
+  --error: #ba1a1a; /* app_theme.dart:73 */
+  --on-error: #ffffff;
+
+  /* GlassCard — glass_card.dart:56-86 (light) */
+  --glass-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.1));
+  --glass-border: 1px solid rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 4px 12px rgba(122, 82, 52, 0.04);
+
+  /* Heatmap intensity ramp (chestnut espresso) */
+  --heat-0: rgba(122, 82, 52, 0.1);
+  --heat-1: rgba(122, 82, 52, 0.32);
+  --heat-2: rgba(122, 82, 52, 0.58);
+  --heat-3: rgba(122, 82, 52, 0.9);
+  --capsule-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.25));
+  --capsule-border: 0.8px solid rgba(255, 255, 255, 0.65);
+  --capsule-shadow: 0 4px 12px rgba(122, 82, 52, 0.04);
+  --capsule-glow: 0 2px 12px rgba(122, 82, 52, 0.1), 0 0 0 2px rgba(122, 82, 52, 0.1); /* nav variant */
+
+  /* Frosted nav track (main_shell.dart:166-200) */
+  --nav-track-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  --nav-track-border: 0.8px solid rgba(255, 255, 255, 0.5);
+  --nav-track-shadow: 0 10px 30px rgba(60, 40, 25, 0.12);
+
+  /* Flat filter well (leaderboard_screen.dart:85-87) */
+  --well-fill: rgba(62, 39, 35, 0.04);
+
+  /* Surfaces */
+  --bg-card: rgba(255, 255, 255, 0.55);
+  --bg-card-hover: rgba(255, 255, 255, 0.7);
+  --bg-elevated: #f7ece8;
+  --bg-input: rgba(255, 255, 255, 0.6);
+
+  /* Chart accents */
+  --chart-grid: rgba(62, 39, 35, 0.08);
+  --chart-axis: rgba(112, 106, 96, 0.6);
+  --chart-area-grad: linear-gradient(180deg, rgba(122, 82, 52, 0.25), rgba(122, 82, 52, 0));
+  --link: var(--accent);
+
+  /* Text on glass inverted readability is not an issue in light mode */
+  --on-glass: var(--text-primary);
+
+  /* Skeleton tint */
+  --skeleton-base: rgba(62, 39, 35, 0.05);
+  --skeleton-hi: rgba(62, 39, 35, 0.1);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   DARK MODE — Obsidian AMOLED Aesthetic
+   ────────────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-scaffold: #0a0b10; /* Deep Obsidian — app_theme.dart:29 */
+  --bg-surface: #0d0d12; /* Dark Charcoal — app_theme.dart:30 */
+  --accent: #7a5234; /* app_theme.dart:31 */
+  --on-accent: #ffffff; /* app_theme.dart:32 */
+  --text-primary: #ffffff; /* app_theme.dart:33 */
+  --text-secondary: #9e9e9e; /* Slate gray — app_theme.dart:34 */
+  --border: rgba(255, 255, 255, 0.1); /* ~10% — app_theme.dart:35 */
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --error: #ffb4ab; /* app_theme.dart:184 */
+  --on-error: #690005;
+
+  /* GlassCard — glass_card.dart:71-86 (dark) */
+  --glass-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+  --glass-border: 1px solid rgba(255, 255, 255, 0.15);
+  --glass-shadow: 0 4px 20px rgba(255, 255, 255, 0.02);
+
+  /* Heatmap intensity ramp (chestnut espresso) */
+  --heat-0: rgba(255, 255, 255, 0.05);
+  --heat-1: rgba(122, 82, 52, 0.45);
+  --heat-2: rgba(122, 82, 52, 0.72);
+  --heat-3: rgba(122, 82, 52, 0.95);
+  --capsule-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02));
+  --capsule-border: 1px solid rgba(255, 255, 255, 0.15);
+  --capsule-shadow: none;
+  --capsule-glow: none; /* nav variant: no glow in dark */
+
+  /* Frosted nav track (main_shell.dart:166-200) */
+  --nav-track-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  --nav-track-border: 0.8px solid rgba(255, 255, 255, 0.22);
+  --nav-track-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+  /* Flat filter well (leaderboard_screen.dart:85-87) */
+  --well-fill: rgba(255, 255, 255, 0.04);
+
+  /* Surfaces */
+  --bg-card: rgba(255, 255, 255, 0.03);
+  --bg-card-hover: rgba(255, 255, 255, 0.05);
+  --bg-elevated: #16161a;
+  --bg-input: rgba(255, 255, 255, 0.03);
+
+  /* Chart accents */
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: rgba(158, 158, 158, 0.6);
+  --chart-area-grad: linear-gradient(180deg, rgba(122, 82, 52, 0.32), rgba(122, 82, 52, 0));
+  --link: #b98a6a;
+
+  --on-glass: var(--text-primary);
+
+  /* Skeleton tint */
+  --skeleton-base: rgba(255, 255, 255, 0.04);
+  --skeleton-hi: rgba(255, 255, 255, 0.09);
+}

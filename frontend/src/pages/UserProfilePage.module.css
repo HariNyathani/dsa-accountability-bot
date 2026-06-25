@@ -1,0 +1,116 @@
+.profilePage {
+}
+
+.back {
+  margin-bottom: 18px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 24px;
+  padding: 24px;
+  flex-wrap: wrap;
+}
+
+.avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--on-accent);
+  background: var(--cta-gradient);
+  flex-shrink: 0;
+  box-shadow: 0 10px 22px rgba(122, 82, 52, 0.28);
+  border: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.info h2 {
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+.info .meta {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+.info .handle {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-primary));
+  font-weight: 700;
+}
+
+.publicPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 85%, var(--text-primary));
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  margin-top: 12px;
+}
+
+.row {
+  margin-top: 24px;
+}
+
+/* Settings card */
+.settings {
+  margin-top: 24px;
+}
+.settingsBody {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  max-width: 520px;
+}
+.fieldRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.fieldRow > * {
+  margin: 0;
+}
+.inputGrow {
+  flex: 1;
+  max-width: 300px;
+  min-width: 200px;
+}
+.urlPreview {
+  margin-top: 14px;
+  padding: 11px 15px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 12px;
+  font-size: 0.82rem;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-primary));
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+.status {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.statusOk { color: var(--diff-easy); }
+.statusBad { color: var(--diff-hard); }
+.statusIdle { color: var(--text-secondary); }
+
+.savedTag {
+  color: var(--diff-easy);
+  font-size: 0.85rem;
+  font-weight: 700;
+}

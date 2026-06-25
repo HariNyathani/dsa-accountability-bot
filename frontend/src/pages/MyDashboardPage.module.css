@@ -1,0 +1,214 @@
+/* MyDashboard — personalized dashboard. Bento grid fixes the legacy
+   QuickLog/Topic mismatch by aligning rows via CSS grid auto-rows. */
+
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.greeting {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 6px 18px rgba(122, 82, 52, 0.2);
+}
+.avatarFallback {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--on-accent);
+  background: var(--cta-gradient);
+  flex-shrink: 0;
+}
+
+.name {
+  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.sub {
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.badges {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.badge {
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 90%, var(--text-primary));
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ── Bento grid (Row C: QuickLog 5 | Topic 4 | Difficulty 3) ────────────── */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 22px;
+  margin-bottom: 24px;
+  align-items: stretch;
+}
+
+.colQuickLog {
+  grid-column: span 5;
+}
+.colTopic {
+  grid-column: span 4;
+}
+.colDifficulty {
+  grid-column: span 3;
+}
+
+.colQuickLog,
+.colTopic,
+.colDifficulty {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.colQuickLog > * {
+  flex: 1;
+}
+
+.span12 {
+  grid-column: span 12;
+}
+.span6 {
+  grid-column: span 6;
+}
+
+@media (max-width: 1100px) {
+  .colQuickLog,
+  .colTopic,
+  .colDifficulty,
+  .span6 {
+    grid-column: span 12;
+  }
+}
+
+/* ── Difficulty bars ─────────────────────────────────────────────────────── */
+.diffList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 6px;
+}
+.diffRow .rowHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.84rem;
+  margin-bottom: 6px;
+}
+.diffRow .lbl {
+  font-weight: 600;
+}
+.diffRow .count {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.diffRow .pct {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 400;
+}
+.diffTrack {
+  width: 100%;
+  height: 8px;
+  background: var(--well-fill);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.diffFill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.unknown {
+  text-align: right;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ── Reminder / settings grids ─────────────────────────────────────────── */
+.kvGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  font-size: 0.88rem;
+}
+.kv {
+  color: var(--text-secondary);
+}
+.kv strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* ── Prompt card (auth / not-registered) ─────────────────────────────────── */
+.prompt {
+  text-align: center;
+  padding: 60px 32px;
+  max-width: 580px;
+  margin: 0 auto;
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.prompt .pIcon {
+  font-size: 3rem;
+}
+.prompt h3 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.prompt p {
+  color: var(--text-secondary);
+  font-size: 0.96rem;
+  line-height: 1.7;
+  max-width: 420px;
+}
+.prompt code {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 85%, var(--text-primary));
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.marginT {
+  margin-top: 22px;
+}

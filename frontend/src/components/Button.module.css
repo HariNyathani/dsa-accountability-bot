@@ -1,0 +1,115 @@
+/* Button — variants: primary (espresso CTA), ghost (glass), danger.
+   Primary uses --cta-gradient (log_progress_sheet.dart:1230-1238). */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: var(--radius-button);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+  padding: 14px 24px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.25s ease, opacity 0.2s ease,
+    filter 0.2s ease;
+  overflow: hidden;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* ── Primary (Deep Chestnut Espresso CTA gradient) ────────────────────────── */
+.primary {
+  background: var(--cta-gradient);
+  color: var(--on-accent);
+  box-shadow: 0 8px 20px rgba(122, 82, 52, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(122, 82, 52, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  filter: brightness(1.05);
+}
+
+.primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(122, 82, 52, 0.2);
+}
+
+/* ── Ghost (glass) ───────────────────────────────────────────────────────── */
+.ghost {
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  color: var(--text-primary);
+  box-shadow: var(--glass-shadow);
+}
+
+.ghost:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  filter: brightness(1.08);
+}
+
+/* ── Outline (subtle, for secondary actions) ─────────────────────────────── */
+.outline {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.outline:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+/* ── Danger ──────────────────────────────────────────────────────────────── */
+.danger {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
+  color: var(--error);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--error);
+  color: var(--on-error);
+  transform: translateY(-2px);
+}
+
+/* ── Sizes ──────────────────────────────────────────────────────────────── */
+.sm {
+  padding: 9px 16px;
+  font-size: 0.85rem;
+  border-radius: var(--radius-md);
+}
+
+.lg {
+  padding: 16px 32px;
+  font-size: 1rem;
+}
+
+.block {
+  width: 100%;
+}
+
+/* ── Submit state machine (log_progress_sheet.dart:1214-1304) ────────────── */
+.phase {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.2em;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}

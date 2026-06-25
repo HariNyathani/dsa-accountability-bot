@@ -8,9 +8,26 @@
     content="DSA Accountability Bot — Analytics Dashboard for tracking DSA progress, streaks, leaderboards, and study insights." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap"
+    rel="stylesheet" />
   <link rel="icon" type="image/png" href="/Dsalogo.png" />
   <title>DSA Accountability — Dashboard</title>
+  <script>
+    // Apply persisted theme + system preference BEFORE first paint to avoid FOUC.
+    (function () {
+      try {
+        var stored = localStorage.getItem("app_theme_mode");
+        var mode = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+        var dark =
+          mode === "dark" ||
+          (mode === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
 </head>
 
 <body>

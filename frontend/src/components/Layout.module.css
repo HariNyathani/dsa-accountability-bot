@@ -1,0 +1,183 @@
+/* Layout — app shell: glass rail sidebar + main content + mobile bottom nav. */
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-scaffold);
+}
+
+/* ── Sidebar (desktop glass rail) ────────────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 16px;
+  z-index: 60;
+  background: var(--glass-fill);
+  border-right: var(--glass-border);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 6px 0;
+}
+
+.brand img {
+  height: 52px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.brand h1 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.brand p {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-top: 3px;
+}
+
+.nav {
+  flex: 1;
+  min-height: 0;
+}
+
+.navScroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.theme {
+  padding: 0 2px;
+}
+
+.auth {
+  padding: 0 2px;
+}
+
+.footer {
+  padding: 12px 6px 4px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.footerText {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.signature {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 75%, transparent);
+  transition: color 0.3s ease;
+  cursor: default;
+}
+
+.signature:hover {
+  color: var(--accent);
+}
+
+/* ── Main ────────────────────────────────────────────────────────────────── */
+.main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+  padding: var(--content-pad-y) var(--content-pad-x) 96px;
+}
+
+.page {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.pageHeader {
+  margin-bottom: 36px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.pageHeader h2 {
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.pageHeader p {
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-size: 0.98rem;
+}
+
+.pageHeader .actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Mobile bottom nav (the floating glass nav bar) ──────────────────────── */
+.bottomNav {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(560px, calc(100% - 32px));
+  padding: 8px;
+  background: var(--nav-track-fill);
+  border: var(--nav-track-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: var(--nav-track-shadow);
+}
+
+.bottomNav .inner {
+  width: 100%;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sidebar {
+    display: none;
+  }
+  .main {
+    margin-left: 0;
+    padding: 20px 18px 110px;
+  }
+}
+
+@media (min-width: 901px) {
+  .bottomNav {
+    display: none;
+  }
+}

@@ -1,0 +1,41 @@
+/* EmptyState / ErrorState — premium glass-tinted states. */
+
+.state {
+  text-align: center;
+  padding: 80px 24px;
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.error {
+  border-color: color-mix(in srgb, var(--error) 35%, transparent);
+}
+
+.icon {
+  font-size: 3rem;
+  line-height: 1;
+  filter: drop-shadow(0 4px 12px rgba(122, 82, 52, 0.2));
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.msg {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.retry {
+  margin-top: 8px;
+}

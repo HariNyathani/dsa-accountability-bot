@@ -1,0 +1,78 @@
+/* Modal — glass backdrop + spring-scale entrance. Replaces inline-styled
+   RevisionBank detail inspector + acts as the universal dialog surface. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 40px);
+  background: rgba(10, 11, 16, 0.55);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+
+[data-theme="light"] .scrim {
+  background: rgba(60, 40, 25, 0.28);
+}
+
+.dialog {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(88vh, 88vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-shadow), 0 24px 64px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/* Larger panels can opt into a max width override */
+.dialog[data-size="lg"] {
+  width: min(760px, 100%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 28px 0;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--well-fill);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.body {
+  padding: 20px 28px 28px;
+  overflow-y: auto;
+  flex: 1;
+}

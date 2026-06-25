@@ -1,0 +1,179 @@
+/* Admin Control Panel — premium tactile admin surfaces. */
+
+.adminHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.adminTitle {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+  background: linear-gradient(135deg, var(--gold), var(--diff-hard));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.adminSub {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.adminSub strong {
+  color: var(--gold);
+}
+.adminPill {
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--diff-hard) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--diff-hard) 28%, transparent);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--diff-hard);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardGap {
+  margin-bottom: 24px;
+}
+
+/* result toast */
+.result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.resultOk { color: var(--diff-easy); }
+.resultBad { color: var(--diff-hard); }
+.toast {
+  margin-top: 14px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toastOk {
+  background: color-mix(in srgb, var(--diff-easy) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--diff-easy) 25%, transparent);
+  color: var(--diff-easy);
+}
+.toastBad {
+  background: color-mix(in srgb, var(--diff-hard) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--diff-hard) 25%, transparent);
+  color: var(--diff-hard);
+}
+
+/* grid forms */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-width: 560px;
+}
+.formGrid .span {
+  grid-column: 1 / -1;
+}
+.formRow {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.helpText {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  max-width: 560px;
+}
+
+/* accent stripe card */
+.stripe {
+  position: relative;
+  overflow: hidden;
+}
+.stripe::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--gold));
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+.stripeTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stripeBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-size: 1rem;
+}
+
+/* posted today dot */
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--diff-hard);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+}
+.dotOn {
+  background: var(--diff-easy);
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+
+/* Health grid */
+.healthGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.healthBox {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.healthBox .hl {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.healthBox .hv {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .formGrid { grid-template-columns: 1fr; }
+  .formGrid .span { grid-column: auto; }
+}

@@ -1,0 +1,178 @@
+/* QuickLogCard — quick log form (manual + platform). */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: 14px;
+}
+
+.tabsWrap {
+  margin-bottom: 16px;
+}
+
+/* Feedback */
+.feedback {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  animation: fade-in-down 0.3s ease;
+}
+.feedbackOk {
+  background: color-mix(in srgb, var(--diff-easy) 10%, transparent);
+  color: var(--diff-easy);
+  border: 1px solid color-mix(in srgb, var(--diff-easy) 25%, transparent);
+}
+.feedbackBad {
+  background: color-mix(in srgb, var(--diff-hard) 10%, transparent);
+  color: var(--diff-hard);
+  border: 1px solid color-mix(in srgb, var(--diff-hard) 25%, transparent);
+}
+
+/* Manual: Done / RestDay intent row */
+.intent {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.intentChip {
+  flex: 1;
+  padding: 11px 6px;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--well-fill);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.intentChip[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.row > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.colTopic { flex: 2; }
+.colDiff { flex: 1.2; }
+.colCount { flex: 1; }
+
+.field {
+  margin-bottom: 18px;
+}
+
+/* Platform chips */
+.platforms {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.platformBtn {
+  flex: 1;
+  padding: 10px 6px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.platformBtn[data-active="true"] {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: color-mix(in srgb, var(--gold) 85%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+}
+.platformBtn:disabled,
+.platformBtn[data-disabled="true"] {
+  background: var(--well-fill);
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.platformIcon { font-size: 1.1rem; }
+.soon {
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+  background: var(--well-fill);
+  padding: 1px 6px;
+  border-radius: 5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Confidence grid */
+.confSection {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.confGrid {
+  display: flex;
+  gap: 8px;
+}
+.confBtn {
+  flex: 1;
+  padding: 10px 6px;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 0.95rem;
+  transition: all 0.18s ease;
+}
+.confBtn[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(122, 82, 52, 0.25);
+}
+.confHint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.submitBlock {
+  width: 100%;
+}

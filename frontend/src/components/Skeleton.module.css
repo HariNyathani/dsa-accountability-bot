@@ -1,0 +1,43 @@
+/* Skeleton — opacity pulse port of skeleton_card.dart (0.35 ↔ 0.75, 1500ms). */
+
+.base {
+  background: var(--skeleton-base);
+  border-radius: var(--radius-md);
+  animation: sk-pulse 1.5s ease-in-out infinite alternate;
+}
+
+.card {
+  height: 140px;
+}
+
+.chart {
+  height: 320px;
+}
+
+.row {
+  height: 56px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+}
+
+.line {
+  height: 12px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.block {
+  height: 18px;
+  width: 60%;
+  display: inline-block;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.grid .card {
+  height: 110px;
+}

@@ -1,0 +1,85 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Motion keyframes — ports of Flutter micro-interaction patterns.
+   Spring physics are handled by Framer Motion at runtime; these cover the
+   pure-CSS ambient loops (skeleton pulse, fade-slide entrance fallbacks).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Skeleton pulse — skeleton_card.dart: opacity 0.35 ↔ 0.75, 1500ms ease-in-out alternate */
+@keyframes sk-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+/* Status dot pulse — index.css parity for status badges */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.8);
+  }
+}
+
+/* Auth dots — authDotPulse */
+@keyframes auth-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* Spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Entrance — fade + slide-up (login_screen.dart:20-66) */
+@keyframes enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(6%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Toast/feedback slide-in */
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

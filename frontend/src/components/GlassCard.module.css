@@ -1,0 +1,47 @@
+/* GlassCard — port of mobile/lib/core/widgets/glass_card.dart.
+   No backdrop-filter (deliberately removed by the Flutter team, glass_card.dart:11-22);
+   gradient fill + specular 1px border + soft ambient shadow alone reproduce the effect. */
+
+.glass {
+  position: relative;
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Larger radius for leaderboard rows + modal cards (AppTheme.cardRadius = 32) */
+.glass[data-radius="lg"] {
+  border-radius: var(--radius-card);
+}
+
+[data-theme="dark"] .glass[data-glow="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  z-index: 1;
+}
+
+[data-theme="light"] .glass[data-glow="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Padding helpers consumed by callers */
+.p {
+  padding: 22px;
+}
+
+.pLg {
+  padding: 28px;
+}

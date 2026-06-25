@@ -1,85 +1,148 @@
-import { NavLink, Outlet } from "react-router-dom";
-import UserMenu from "./UserMenu";
+import { motion } from "motion/react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useMemo, type ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { quickSpring } from "../styles/springs";
+import LiquidCapsule, { type CapsuleItem } from "./LiquidCapsule";
+import ThemeSwitcher from "./ThemeSwitcher";
+import UserMenu from "./UserMenu";
+import s from "./Layout.module.css";
 
-const NAV = [
-  { to: "/", icon: "📊", label: "Dashboard" },
-  { to: "/leaderboard", icon: "🏆", label: "Leaderboard" },
-  { to: "/analytics", icon: "📈", label: "Analytics" },
-  { to: "/status", icon: "🟢", label: "System Status" },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  authOnly?: boolean;
+}
+
+const NAV: NavItem[] = [
+  { to: "/", label: "Dashboard", icon: "📊" },
+  { to: "/leaderboard", label: "Leaderboard", icon: "🏆" },
+  { to: "/analytics", label: "Analytics", icon: "📈" },
+  { to: "/me", label: "My Dashboard", icon: "🔐", authOnly: true },
+  { to: "/revision", label: "Revision Bank", icon: "🧠", authOnly: true },
 ];
+
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className={s.pageHeader}>
+      <div>
+        <h2>{title}</h2>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      {actions && <div className={s.actions}>{actions}</div>}
+    </header>
+  );
+}
 
 export default function Layout() {
   const { authenticated } = useAuth();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  const items = useMemo(
+    () =>
+      NAV.filter((n) => !n.authOnly || authenticated).map<CapsuleItem<string>>((n) => ({
+        key: n.to,
+        label: n.label,
+        icon: <span>{n.icon}</span>,
+      })),
+    [authenticated]
+  );
+
+  // Resolve the active nav key from the current path. /u/*, /users/*, /admin
+  // don't have their own nav slots; fall back to "" (no pill rendered).
+  const activeKey = useMemo(() => {
+    const match = NAV.find((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)));
+    return match ? match.to : "";
+  }, [pathname]);
 
   return (
-    <div className="app-layout">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-brand" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <img
-            src="/Dsalogo.png"
-            alt="DSA Logo"
-            style={{ height: "64px", width: "auto", objectFit: "contain", flexShrink: 0 }}
-          />
+    <div className={s.shell}>
+      <aside className={s.sidebar}>
+        <div className={s.brand}>
+          <img src="/Dsalogo.png" alt="DSA Tracker" />
           <div>
             <h1>DSA Tracker</h1>
-            <p style={{ marginTop: "2px" }}>Accountability Platform</p>
+            <p>Accountability</p>
           </div>
         </div>
 
-        <nav className="sidebar-nav">
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.to === "/"}
-              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            >
-              <span className="nav-icon">{n.icon}</span>
-              {n.label}
-            </NavLink>
-          ))}
-
-          {/* Authenticated Links */}
-          {authenticated && (
-            <>
-              <NavLink
-                to="/me"
-                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-              >
-                <span className="nav-icon">🔐</span>
-                My Dashboard
-              </NavLink>
-              <NavLink
-                to="/revision"
-                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-              >
-                <span className="nav-icon">🧠</span>
-                Revision Bank
-              </NavLink>
-            </>
-          )}
+        <nav className={s.nav}>
+          <div className={s.navScroll}>
+            <LiquidCapsule
+              items={items}
+              value={activeKey}
+              onChange={(to) => navigate(to)}
+              variant="nav"
+              orientation="vertical"
+              aria-label="Primary"
+            />
+          </div>
         </nav>
 
-        {/* Auth section in sidebar footer */}
-        <UserMenu />
+        <div className={s.theme}>
+          <ThemeSwitcher />
+        </div>
 
-        <div className="sidebar-footer">
-          <div className="footer-text">
-            DSA Accountability Bot V3.0<br />
+        <div className={s.auth}>
+          <UserMenu />
+        </div>
+
+        <div className={s.footer}>
+          <div className={s.footerText}>
+            DSA Accountability Bot V3.0
+            <br />
             Discord + API + Dashboard
           </div>
-          <div className="creator-signature">
-            crafted by @harinyathani
-          </div>
+          <div className={s.signature}>crafted by @harinyathani</div>
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="main-content">
-        <Outlet />
+      <main className={s.main}>
+        <div className={s.page}>
+          <RouteTransitions />
+        </div>
       </main>
+
+      {/* Mobile floating glass nav */}
+      <div className={s.bottomNav}>
+        <div className={s.inner}>
+          <LiquidCapsule
+            items={items}
+            value={activeKey}
+            onChange={(to) => navigate(to)}
+            variant="nav"
+            aria-label="Primary (mobile)"
+          />
+        </div>
+      </div>
     </div>
+  );
+}
+
+/** Route transition wrapper — fade + 8% slide-in on mount.
+ *  Mirrors all_problems_view.dart:118-144 (200ms easeOutCubic). Exit animation
+ *  is intentionally omitted: a keyed <Outlet> cannot persist old content during
+ *  exit, so exit flashes. Mount-in animation is robust and still premium. */
+function RouteTransitions() {
+  const { pathname } = useLocation();
+  return (
+    <motion.div
+      key={pathname}
+      initial={{ opacity: 0, x: 12 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ ...quickSpring, duration: 0.2 }}
+    >
+      <Outlet />
+    </motion.div>
   );
 }

@@ -1,0 +1,31 @@
+/* Tooltip — glass micro-popover. */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  padding: 6px 12px;
+  background: var(--glass-fill);
+  border: var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow), 0 8px 20px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tipDown {
+  bottom: auto;
+  top: calc(100% + 8px);
+}

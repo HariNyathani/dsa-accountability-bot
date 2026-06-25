@@ -1,0 +1,234 @@
+/* Shared page scaffolding — grids, cards, tables, badges, bars — all
+   token-driven. Replaces the global `.stats-grid`/`.card`/`.data-table` etc.
+   from the legacy index.css with scoped module classes. */
+
+/* ── Stats grid ──────────────────────────────────────────────────────────── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.statsGrid[data-cols="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .statsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .statsGrid,
+  .statsGrid[data-cols="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Generic surface card ────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 26px;
+  box-shadow: var(--glass-shadow);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease,
+    background 0.25s ease;
+}
+
+.cardHover:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+
+.title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  margin-bottom: 18px;
+}
+
+.chartContainer {
+  margin-bottom: 24px;
+}
+
+.chartContainer:last-child {
+  margin-bottom: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.chartsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 960px) {
+  .chartsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Data table ──────────────────────────────────────────────────────────── */
+.tableWrap {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table th {
+  text-align: left;
+  padding: 14px 18px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 15px 18px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.table tbody tr:hover td {
+  background: var(--well-fill);
+}
+
+.row {
+  cursor: pointer;
+}
+
+/* Rank / medals */
+.medal {
+  font-size: 1.2rem;
+  filter: drop-shadow(0 2px 6px rgba(122, 82, 52, 0.25));
+}
+
+.rankNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--well-fill);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.username {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bold {
+  font-weight: 700;
+}
+
+/* Streak badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.badgeActive {
+  background: color-mix(in srgb, var(--diff-easy) 14%, transparent);
+  color: var(--diff-easy);
+  border-color: color-mix(in srgb, var(--diff-easy) 28%, transparent);
+}
+
+.badgeIdle {
+  background: var(--well-fill);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+/* Consistency bar */
+.consBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.consBar .num {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  min-width: 38px;
+}
+
+.consBar .track {
+  flex: 1;
+  height: 8px;
+  background: var(--well-fill);
+  border-radius: 999px;
+  overflow: hidden;
+  max-width: 120px;
+}
+
+.consBar .fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px rgba(122, 82, 52, 0.4);
+}
+
+/* Empty inline state for charts */
+.emptyInline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 220px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+/* Reflow helper so actions next to a title don't crowd */
+.grow {
+  flex: 1;
+}
