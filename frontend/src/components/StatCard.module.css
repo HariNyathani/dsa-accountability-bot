@@ -15,44 +15,9 @@
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
-.card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  opacity: 0.85;
-  transition: opacity 0.3s ease;
-}
-
 .card:hover {
   transform: translateY(-3px);
   border-color: var(--border-strong);
-}
-.card:hover::before {
-  opacity: 1;
-}
-
-/* Accent stripes — all anchored on the chestnut/warm family, no neon */
-.card[data-accent="espresso"]::before {
-  background: linear-gradient(90deg, #7a5234, #9e6f4a);
-}
-.card[data-accent="amber"]::before {
-  background: linear-gradient(90deg, #f59e0b, #b08968);
-}
-.card[data-accent="sage"]::before {
-  background: linear-gradient(90deg, #4a7a5c, #a8b5a0);
-}
-.card[data-accent="slate"]::before {
-  background: linear-gradient(90deg, #5b7b9e, #6d8ab0);
-}
-.card[data-accent="clay"]::before {
-  background: linear-gradient(90deg, #c99a6e, #7a5234);
-}
-.card[data-accent="rose"]::before {
-  background: linear-gradient(90deg, #e57373, #c99a6e);
 }
 
 .icon {

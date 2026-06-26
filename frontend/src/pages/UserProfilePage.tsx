@@ -203,42 +203,46 @@ export default function UserProfilePage() {
       />
 
       <div className={sh.chartsGrid} style={{ marginTop: "24px" }}>
-        <GlassCard padded glow>
+        <GlassCard padded glow fill>
           <div className={sh.title}>📚 Topic Distribution</div>
-          {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={t.frequency.slice(0, 8)}
-                  dataKey="count"
-                  nameKey="topic"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  innerRadius={52}
-                  paddingAngle={2}
-                  label={({ topic, percent }: { topic: string; percent: number }) => `${topic} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={{ stroke: "var(--border-strong)" }}
-                >
-                  {t.frequency.slice(0, 8).map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                  ))}
-                </Pie>
-                <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState icon="📚" title="No topics yet" message="Start posting DSA progress to see topic analysis." />
-          )}
+          <div className={sh.bodyCenter}>
+            {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={t.frequency.slice(0, 8)}
+                    dataKey="count"
+                    nameKey="topic"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    innerRadius={52}
+                    paddingAngle={2}
+                    label={({ topic, percent }: { topic: string; percent: number }) => `${topic} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={{ stroke: "var(--border-strong)" }}
+                  >
+                    {t.frequency.slice(0, 8).map((_, i) => (
+                      <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                    ))}
+                  </Pie>
+                  <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState icon="📚" title="No topics yet" message="Start posting DSA progress to see topic analysis." />
+            )}
+          </div>
         </GlassCard>
 
-        <GlassCard padded glow>
+        <GlassCard padded glow fill>
           <div className={sh.title}>🎯 Difficulty Distribution</div>
-          {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
-            <DifficultyBars d={d} />
-          ) : (
-            <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see distribution." />
-          )}
+          <div className={sh.bodyCenter}>
+            {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
+              <DifficultyBars d={d} />
+            ) : (
+              <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see distribution." />
+            )}
+          </div>
         </GlassCard>
       </div>
 

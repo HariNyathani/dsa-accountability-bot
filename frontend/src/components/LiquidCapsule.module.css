@@ -31,12 +31,15 @@
 .track[data-size="compact"] {
   height: 44px;
 }
+
 .track[data-size="tri"] {
   height: 48px;
 }
+
 .track[data-size="filter"] {
   height: 46px;
 }
+
 .track[data-size="nav"] {
   height: 64px;
 }
@@ -166,9 +169,11 @@
 .fit[data-size="compact"] .segment {
   width: 50%;
 }
+
 .fit[data-size="tri"] .segment {
   width: 33.3333%;
 }
+
 .fit[data-size="filter"] .segment {
   width: 25%;
 }

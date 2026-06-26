@@ -49,18 +49,17 @@ export default function LiquidCapsule<T extends string | number>({
     items.length === 2
       ? "compact"
       : items.length === 3
-      ? "tri"
-      : variant === "nav"
-      ? "nav"
-      : "filter";
+        ? "tri"
+        : variant === "nav"
+          ? "nav"
+          : "filter";
 
   const spring = reduce ? { duration: 0 } : snapSpring;
 
   return (
     <div
-      className={`${s.track}${layout === "fit" ? ` ${s.fit}` : ` ${s.stretch}`}${
-        className ? ` ${className}` : ""
-      }`}
+      className={`${s.track}${layout === "fit" ? ` ${s.fit}` : ` ${s.stretch}`}${className ? ` ${className}` : ""
+        }`}
       role="tablist"
       aria-label={rest["aria-label"]}
       data-variant={variant}

@@ -137,74 +137,84 @@ export default function MyDashboardPage() {
       <div className={s.bento}>
         <div className={s.colQuickLog}>
           <QuickLogCard onLogSuccess={() => { aggregate.refetch(); sums.refetch(); activity.refetch(); heatmap.refetch(); }} />
-          <RecentActivity logs={activity.data?.recent_logs} loading={activity.loading} />
         </div>
 
         <div className={s.colTopic}>
-          <GlassCard padded glow>
+          <GlassCard padded glow fill>
             <div className={sh.title}>📚 Your Topic Distribution</div>
-            {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={t.frequency.slice(0, 8)}
-                    dataKey="count"
-                    nameKey="topic"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    innerRadius={52}
-                    paddingAngle={2}
-                    label={({ topic, percent }: { topic: string; percent: number }) => `${topic} ${(percent * 100).toFixed(0)}%`}
-                    labelLine={{ stroke: "var(--border-strong)" }}
-                  >
-                    {t.frequency.slice(0, 8).map((_, i) => (
-                      <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                    ))}
-                  </Pie>
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState icon="📚" title="No topics yet" message="Start posting DSA progress to see your topic analysis." />
-            )}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: "16px" }}>
+              {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={t.frequency.slice(0, 8)}
+                      dataKey="count"
+                      nameKey="topic"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      innerRadius={46}
+                      paddingAngle={2}
+                      label={({ topic, percent }: { topic: string; percent: number }) => `${topic} ${(percent * 100).toFixed(0)}%`}
+                      labelLine={{ stroke: "var(--border-strong)" }}
+                    >
+                      {t.frequency.slice(0, 8).map((_, i) => (
+                        <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                      ))}
+                    </Pie>
+                    <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState icon="📚" title="No topics yet" message="Start posting DSA progress to see your topic analysis." />
+              )}
+            </div>
           </GlassCard>
         </div>
 
         <div className={s.colDifficulty}>
-          <GlassCard padded glow>
+          <GlassCard padded glow fill>
             <div className={sh.title}>🎯 Difficulty</div>
-            {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
-              <DifficultyBars d={d} />
-            ) : (
-              <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see your distribution." />
-            )}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              {aggregate.loading ? <SkeletonRows count={4} /> : d && (d.easy > 0 || d.medium > 0 || d.hard > 0 || (d.expert || 0) > 0) ? (
+                <DifficultyBars d={d} />
+              ) : (
+                <EmptyState icon="🎯" title="No difficulty data" message="Log questions with difficulty to see your distribution." />
+              )}
+            </div>
           </GlassCard>
         </div>
       </div>
 
-      {/* Topic Frequency */}
-      <div className={sh.chartContainer}>
-        <GlassCard padded glow>
-          <div className={sh.title}>📊 Topic Frequency</div>
-          {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(200, t.frequency.slice(0, 8).length * 34)}>
-              <BarChart data={t.frequency.slice(0, 8)} layout="vertical">
-                <CartesianGrid {...gridProps} />
-                <XAxis type="number" tick={axisTick} />
-                <YAxis type="category" dataKey="topic" width={120} tick={axisTickBold} />
-                <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
-                <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Questions">
-                  {t.frequency.slice(0, 8).map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState icon="📊" title="No data yet" message="Topic insights appear once you start logging." />
-          )}
-        </GlassCard>
+      {/* Bento Lower: Topic Frequency | Recent Activity */}
+      <div className={s.bentoLower}>
+        <div className={s.colFreq}>
+          <GlassCard padded glow fill>
+            <div className={sh.title}>📊 Topic Frequency</div>
+            <div style={{ marginTop: "24px" }}>
+              {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(200, t.frequency.slice(0, 8).length * 34)}>
+                  <BarChart data={t.frequency.slice(0, 8)} layout="vertical">
+                    <CartesianGrid {...gridProps} />
+                    <XAxis type="number" tick={axisTick} />
+                    <YAxis type="category" dataKey="topic" width={120} tick={axisTickBold} />
+                    <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
+                    <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Questions">
+                      {t.frequency.slice(0, 8).map((_, i) => (
+                        <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState icon="📊" title="No data yet" message="Topic insights appear once you start logging." />
+              )}
+            </div>
+          </GlassCard>
+        </div>
+        <div className={s.colActivity}>
+          <RecentActivity logs={activity.data?.recent_logs} loading={activity.loading} />
+        </div>
       </div>
 
       {/* Weekly Summary History */}
@@ -243,34 +253,35 @@ export default function MyDashboardPage() {
         </GlassCard>
       </div>
 
-      {/* Reminder Settings */}
-      {remind.data && (
-        <div className={`${sh.chartContainer} ${s.marginT}`}>
-          <GlassCard padded glow>
-            <div className={sh.title}>⏰ Your Reminder Settings</div>
-            <div className={s.kvGrid}>
-              <div className={s.kv}>Timezone: <strong>{remind.data.timezone}</strong></div>
-              <div className={s.kv}>Deadline: <strong>{remind.data.deadline}</strong></div>
-              <div className={s.kv}>Warning: <strong>{remind.data.warn_time}</strong></div>
-              <div className={s.kv}>Final Alert: <strong>{remind.data.final_time}</strong></div>
-              <div className={s.kv}>Email Alert: <strong>{remind.data.email_time}</strong></div>
-              <div className={s.kv}>Email Setup: <strong>{remind.data.email_configured ? "✅ Configured" : "❌ Not set"}</strong></div>
-            </div>
-          </GlassCard>
-        </div>
-      )}
+      {/* Settings Row */}
+      <div className={s.bentoLower}>
+        {remind.data && (
+          <div className={s.colFreq}>
+            <GlassCard padded glow fill>
+              <div className={sh.title}>⏰ Your Reminder Settings</div>
+              <div className={s.kvGrid} style={{ marginTop: "24px" }}>
+                <div className={s.kv}>Timezone: <strong>{remind.data.timezone}</strong></div>
+                <div className={s.kv}>Deadline: <strong>{remind.data.deadline}</strong></div>
+                <div className={s.kv}>Warning: <strong>{remind.data.warn_time}</strong></div>
+                <div className={s.kv}>Final Alert: <strong>{remind.data.final_time}</strong></div>
+                <div className={s.kv}>Email Alert: <strong>{remind.data.email_time}</strong></div>
+                <div className={s.kv}>Email Setup: <strong>{remind.data.email_configured ? "✅ Configured" : "❌ Not set"}</strong></div>
+              </div>
+            </GlassCard>
+          </div>
+        )}
 
-      {/* Bot Settings */}
-      {u?.settings && (
-        <div className={`${sh.chartContainer} ${s.marginT}`}>
-          <GlassCard padded glow>
-            <div className={sh.title}>⚙️ Bot Settings</div>
-            <div className={s.kvGrid}>
-              <div className={s.kv}>Channel: <strong>{u.settings.tracked_channel_id || "Not set"}</strong></div>
-            </div>
-          </GlassCard>
-        </div>
-      )}
+        {u?.settings && (
+          <div className={s.colActivity}>
+            <GlassCard padded glow fill>
+              <div className={sh.title}>⚙️ Bot Settings</div>
+              <div className={s.kvGrid} style={{ marginTop: "24px" }}>
+                <div className={s.kv}>Channel: <strong>{u.settings.tracked_channel_id || "Not set"}</strong></div>
+              </div>
+            </GlassCard>
+          </div>
+        )}
+      </div>
     </>
   );
 }

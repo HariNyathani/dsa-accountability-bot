@@ -14,6 +14,7 @@ export default function GlassCard({
   glow = false,
   padded = false,
   pad = "md",
+  fill = false,
   className = "",
   style,
 }: {
@@ -27,6 +28,10 @@ export default function GlassCard({
   padded?: boolean;
   /** Padding scale when `padded`. */
   pad?: "md" | "lg";
+  /** Stretch to fill the parent flex/grid cell and become a flex-column so
+   * inner content can distribute vertically. Use for bento cells that must
+   * share equal heights. */
+  fill?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -34,7 +39,7 @@ export default function GlassCard({
     <div
       className={`${s.glass}${padded ? ` ${pad === "lg" ? s.pLg : s.p}` : ""}${
         glow ? ` ${s.glow}` : ""
-      }${className ? ` ${className}` : ""}`}
+      }${fill ? ` ${s.fill}` : ""}${className ? ` ${className}` : ""}`}
       data-radius={radius >= 32 ? "lg" : undefined}
       data-glow={glow ? "true" : undefined}
       style={

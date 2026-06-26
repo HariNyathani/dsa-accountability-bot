@@ -232,3 +232,15 @@
 .grow {
   flex: 1;
 }
+
+/* Vertical centering wrapper for a stretched card's body — when a card is
+   stretched taller than its fixed-height viz, this centers the content so
+   extra space balances above & below (premium feel, no top-heavy dead space). */
+.bodyCenter {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+}

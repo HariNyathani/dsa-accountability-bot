@@ -8,9 +8,9 @@ import s from "./ThemeSwitcher.module.css";
  * (segment order: Light / Dark / System).
  */
 const items: CapsuleItem<ThemeMode>[] = [
-  { key: "light", label: "Light", icon: <Sun /> },
-  { key: "dark", label: "Dark", icon: <Moon /> },
-  { key: "system", label: "System", icon: <Auto /> },
+  { key: "light", label: <Sun />, },
+  { key: "dark", label: <Moon />, },
+  { key: "system", label: <Auto />, },
 ];
 
 export default function ThemeSwitcher({ compact = false }: { compact?: boolean }) {

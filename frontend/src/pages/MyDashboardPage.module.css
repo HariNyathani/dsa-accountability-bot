@@ -93,8 +93,44 @@
   min-width: 0;
 }
 
+/* QuickLog column */
 .colQuickLog > * {
-  flex: 1;
+  flex: 1 1 auto;
+}
+
+/* Topic & Difficulty columns: their single card stretches to fill the column
+   so all three bento cells share equal heights (card edges align). */
+.colTopic > *,
+.colDifficulty > * {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.bentoLower {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 22px;
+  margin-bottom: 24px;
+  align-items: stretch;
+}
+
+.colFreq {
+  grid-column: span 7;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.colActivity {
+  grid-column: span 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.colFreq > *,
+.colActivity > * {
+  flex: 1 1 auto;
 }
 
 .span12 {
@@ -108,6 +144,8 @@
   .colQuickLog,
   .colTopic,
   .colDifficulty,
+  .colFreq,
+  .colActivity,
   .span6 {
     grid-column: span 12;
   }
