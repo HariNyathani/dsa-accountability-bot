@@ -277,7 +277,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   ],
                 ),
                 AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
+                  firstChild: const SizedBox(width: double.infinity, height: 0),
                   secondChild: Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Column(
@@ -321,26 +321,18 @@ class _ProfileTabState extends State<ProfileTab> {
                           width: double.infinity,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(12),
-                            color: theme.brightness == Brightness.dark ? Colors.transparent : null,
-                            gradient: theme.brightness == Brightness.dark
-                                ? null
-                                : const LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Color(0xFF9E6F4A),
-                                      Color(0xFF7A5234),
-                                    ],
-                                  ),
-                            border: theme.brightness == Brightness.dark
-                                ? Border.all(
-                                    color: Colors.white.withValues(alpha: 0.15),
-                                    width: 1.0,
-                                  )
-                                : Border.all(
-                                    color: Colors.white.withValues(alpha: 0.40),
-                                    width: 0.8,
-                                  ),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color(0xFF9E6F4A),
+                                Color(0xFF7A5234),
+                              ],
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.40),
+                              width: 0.8,
+                            ),
                           ),
                           child: Material(
                             color: Colors.transparent,

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -92,7 +93,12 @@ class DueReviewsCard extends StatelessWidget {
                     final item = dueReviews[index];
                     return _DueReviewItemCard(
                       item: item,
-                      onTap: () => _showReviewSheet(context, item),
+                      onTap: () => showReviewSheet(
+                        context: context,
+                        problemId: item.problemId,
+                        title: item.title,
+                        difficulty: item.difficulty,
+                      ),
                     );
                   },
                 ),
@@ -104,25 +110,34 @@ class DueReviewsCard extends StatelessWidget {
       },
     );
   }
+}
 
-  /// Opens a lightweight modal bottom sheet that lets the user rate
-  /// their confidence (1–5 stars) and submit the review.
-  void _showReviewSheet(BuildContext context, RevisionDueItem item) {
-    // Capture provider before the async gap so it resolves correctly
-    // even if the calling context gets torn down during the sheet animation.
-    final progressProvider = context.read<ProgressProvider>();
+/// Opens a lightweight modal bottom sheet that lets the user rate
+/// their confidence (1–5 stars) and submit the review.
+void showReviewSheet({
+  required BuildContext context,
+  required int problemId,
+  required String title,
+  required String difficulty,
+}) {
+  // Capture provider before the async gap so it resolves correctly
+  // even if the calling context gets torn down during the sheet animation.
+  final progressProvider = context.read<ProgressProvider>();
 
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black54,
-      isScrollControlled: true,
-      builder: (sheetContext) => ChangeNotifierProvider<ProgressProvider>.value(
-        value: progressProvider,
-        child: _ReviewSheet(item: item),
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black54,
+    isScrollControlled: true,
+    builder: (sheetContext) => ChangeNotifierProvider<ProgressProvider>.value(
+      value: progressProvider,
+      child: ReviewSheet(
+        problemId: problemId,
+        title: title,
+        difficulty: difficulty,
       ),
-    );
-  }
+    ),
+  );
 }
 
 // =============================================================================
@@ -245,15 +260,23 @@ class _DueReviewItemCard extends StatelessWidget {
 // _ReviewSheet — bottom sheet for rating confidence and submitting
 // =============================================================================
 
-class _ReviewSheet extends StatefulWidget {
-  const _ReviewSheet({required this.item});
-  final RevisionDueItem item;
+class ReviewSheet extends StatefulWidget {
+  const ReviewSheet({
+    super.key,
+    required this.problemId,
+    required this.title,
+    required this.difficulty,
+  });
+
+  final int problemId;
+  final String title;
+  final String difficulty;
 
   @override
-  State<_ReviewSheet> createState() => _ReviewSheetState();
+  State<ReviewSheet> createState() => _ReviewSheetState();
 }
 
-class _ReviewSheetState extends State<_ReviewSheet> {
+class _ReviewSheetState extends State<ReviewSheet> {
   int _confidence = 3; // default: Okay
   bool _isSubmitting = false;
 
@@ -271,7 +294,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
 
     final provider = context.read<ProgressProvider>();
     final success = await provider.submitReview(
-      problemId: widget.item.problemId,
+      problemId: widget.problemId,
       confidence: _confidence,
       context: context,
     );
@@ -285,7 +308,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '\u2705 Reviewed: ${widget.item.title}',
+            '\u2705 Reviewed: ${widget.title}',
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -312,9 +335,43 @@ class _ReviewSheetState extends State<_ReviewSheet> {
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: GlassCard(
-          radius: 24,
-          child: SafeArea(
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(24.0),
+          ),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? [
+                          Colors.white.withValues(alpha: 0.05),
+                          Colors.white.withValues(alpha: 0.01),
+                        ]
+                      : [
+                          Colors.white.withValues(alpha: 0.45),
+                          Colors.white.withValues(alpha: 0.15),
+                        ],
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                  left: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                  right: BorderSide(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.50),
+                    width: 1.0,
+                  ),
+                ),
+              ),
+              child: SafeArea(
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
@@ -337,7 +394,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
 
                   // ── Problem title ──────────────────────────────────
                   Text(
-                    widget.item.title,
+                    widget.title,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.2,
@@ -347,7 +404,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${widget.item.difficulty}  ·  #${widget.item.problemId}',
+                    '${widget.difficulty}  ·  #${widget.problemId}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -473,6 +530,9 @@ class _ReviewSheetState extends State<_ReviewSheet> {
           ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }
+

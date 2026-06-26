@@ -416,6 +416,31 @@ class ProgressProvider extends ChangeNotifier {
       _dueReviews = _dueReviews
           .where((item) => item.problemId != problemId)
           .toList();
+
+      // Optimistic local update for the full revision bank cache.
+      // This avoids dropping prefetched pages and prevents a loading skeleton.
+      for (final page in _revisionPageCache.keys) {
+        final items = _revisionPageCache[page]!;
+        final index = items.indexWhere((item) => item.problemId == problemId);
+        if (index != -1) {
+          final oldItem = items[index];
+          items[index] = RevisionBankItem(
+            problemId: oldItem.problemId,
+            title: oldItem.title,
+            titleSlug: oldItem.titleSlug,
+            difficulty: oldItem.difficulty,
+            topics: oldItem.topics,
+            confidenceLast: confidence,
+            nextReviewAt: oldItem.nextReviewAt,
+            firstSolvedAt: oldItem.firstSolvedAt,
+            lastReviewedAt: DateTime.now().toUtc().toIso8601String(),
+            reviewCount: oldItem.reviewCount + 1,
+            daysRemaining: oldItem.daysRemaining,
+          );
+          // Only need to update it once.
+          break;
+        }
+      }
       if (!_disposed) notifyListeners();
       return true;
     } on DioException catch (e) {

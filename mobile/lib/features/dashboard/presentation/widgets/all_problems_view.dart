@@ -8,6 +8,7 @@ import '../../../../core/widgets/glass_card.dart';
 import '../../../../core/widgets/skeleton_card.dart';
 import '../../data/models/user_stats.dart';
 import '../providers/progress_provider.dart';
+import 'due_reviews_card.dart';
 
 /// Full-screen paginated view of the user's entire revision bank.
 ///
@@ -414,6 +415,15 @@ class _ProblemCardState extends State<_ProblemCard> {
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
+      onTap: () {
+        HapticService.lightTap();
+        showReviewSheet(
+          context: context,
+          problemId: item.problemId,
+          title: item.title,
+          difficulty: item.difficulty,
+        );
+      },
       child: AnimatedScale(
         scale: _pressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 120),

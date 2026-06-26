@@ -512,14 +512,6 @@ class _LeaderboardRow extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Row(
                 children: [
-                  // P3: Discord avatar with initial fallback.
-                  CachedAvatar(
-                    url: null, // wired up when backend exposes avatar_url
-                    fallbackInitial: initial,
-                    size: 36,
-                  ),
-                  const SizedBox(width: 12),
-
                   // Rank badge.
                   SizedBox(
                     width: 40,
@@ -629,13 +621,11 @@ class _LeaderboardRow extends StatelessWidget {
   // ── Subtitle ────────────────────────────────────────────────────────────
 
   static String _subtitleForSort(LeaderboardEntry entry, String sortBy) {
-    final streak = '${entry.currentStreak} day streak';
-    final pct = '${entry.consistencyPct.toStringAsFixed(0)}%';
     return switch (sortBy) {
-      'consistency' => '$pct consistency · $streak',
-      'posts' => '${entry.totalMessages} posts · $streak',
-      'days' => '${entry.daysPosted} days active · $streak',
-      _ => '$streak · $pct',
+      'consistency' => '${entry.consistencyPct.toStringAsFixed(0)}% consistency',
+      'posts' => '${entry.totalMessages} posts',
+      'days' => '${entry.daysPosted} days active',
+      _ => '${entry.currentStreak} day streak',
     };
   }
 
