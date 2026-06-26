@@ -37,7 +37,7 @@ export default function UserMenu() {
     );
   }
 
-  const initials = user.username.slice(0, 2).toUpperCase();
+  const initials = (user.username ?? "??").slice(0, 2).toUpperCase() || "??";
 
   const items: DropdownItem<string>[] = [
     { key: "profile", label: "My Profile", icon: <span>👤</span> },

@@ -53,6 +53,7 @@
 
 .close {
   flex-shrink: 0;
+  margin-left: auto; /* stays right-aligned even when no title is rendered */
   display: inline-flex;
   align-items: center;
   justify-content: center;

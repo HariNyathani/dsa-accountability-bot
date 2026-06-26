@@ -6,6 +6,29 @@
   background: var(--bg-scaffold);
 }
 
+/* Skip-to-content — visually hidden until focused (WCAG 2.4.1) */
+.skipLink {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 0 0 8px 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  z-index: 9999;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skipLink:focus {
+  top: 0;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
 /* ── Sidebar (desktop glass rail) ────────────────────────────────────────── */
 .sidebar {
   position: fixed;
@@ -189,12 +212,14 @@
 
 @media (max-width: 900px) {
   .mobileAuth {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     position: fixed;
     top: 14px;
     right: 16px;
     z-index: 75;
     /* Shrink the UserMenu trigger so it fits as a compact chip */
-    max-width: 180px;
+    max-width: 240px;
   }
 }

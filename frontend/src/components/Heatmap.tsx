@@ -18,6 +18,14 @@ const levelClass = (count: number) => {
   return s.tileL3;
 };
 
+/** Module-scoped so it's never re-created on component re-renders. */
+const formatDate = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentStreak, maxStreak, loading }) => {
   // Recomputes if the component re-renders past midnight (todayKey changes).
   const todayKey = new Date().toDateString();
@@ -50,12 +58,7 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
     return { months: monthGroups, weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
   }, [todayKey]);
 
-  const formatDate = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
+
 
   // Floating tooltip state — event-delegated from the scroll container so we
   // never create 365 individual event listeners.

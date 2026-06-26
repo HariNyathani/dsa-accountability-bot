@@ -238,8 +238,16 @@ export default function AdminPage() {
             </p>
             <div className={s.formGrid}>
               <div className={s.span}>
-                <Select value={sudoUserId} onChange={(e) => setSudoUserId(e.target.value)}>
+                <Select
+                  label="Target user"
+                  value={sudoUserId}
+                  onChange={(e) => setSudoUserId(e.target.value)}
+                >
                   <option value="">Select a user…</option>
+                  {/* Hidden fallback keeps React happy if selected user is removed from list during re-fetch */}
+                  {sudoUserId && !users.some((u) => u.user_id === sudoUserId) && (
+                    <option value={sudoUserId} hidden>{sudoUserId}</option>
+                  )}
                   {users.map((u) => (
                     <option key={u.user_id} value={u.user_id}>
                       {u.discord_username || u.user_id} ({u.user_id})
@@ -291,10 +299,14 @@ export default function AdminPage() {
             <div className={s.formRow}>
               <div style={{ flex: 1, maxWidth: 280 }}>
                 <Select
+                  label="Target user"
                   value={restUserId}
                   onChange={(e) => { setRestUserId(e.target.value); setRestResult(null); }}
                 >
                   <option value="">Select a user…</option>
+                  {restUserId && !users.some((u) => u.user_id === restUserId) && (
+                    <option value={restUserId} hidden>{restUserId}</option>
+                  )}
                   {users.map((u) => (
                     <option key={u.user_id} value={u.user_id}>
                       {u.discord_username || u.user_id} ({u.user_id})
@@ -325,8 +337,15 @@ export default function AdminPage() {
             </p>
             <div className={s.formRow}>
               <div style={{ flex: 1, maxWidth: 280 }}>
-                <Select value={undoUserId} onChange={(e) => setUndoUserId(e.target.value)}>
+                <Select
+                  label="Target user"
+                  value={undoUserId}
+                  onChange={(e) => setUndoUserId(e.target.value)}
+                >
                   <option value="">Select a user…</option>
+                  {undoUserId && !users.some((u) => u.user_id === undoUserId) && (
+                    <option value={undoUserId} hidden>{undoUserId}</option>
+                  )}
                   {users.map((u) => (
                     <option key={u.user_id} value={u.user_id}>
                       {u.discord_username || u.user_id} ({u.user_id})

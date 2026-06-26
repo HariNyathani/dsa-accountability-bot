@@ -111,6 +111,7 @@ export default function Dropdown<T extends string | number>({
           tabIndex={0}
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-label={ariaLabel}
           data-open={open}
           onClick={() => setOpen((o) => !o)}
           onKeyDown={(e) => {

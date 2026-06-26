@@ -1,8 +1,9 @@
 import { motion } from "motion/react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { quickSpring } from "../styles/springs";
+import ErrorBoundary from "./ErrorBoundary";
 import LiquidCapsule, { type CapsuleItem } from "./LiquidCapsule";
 import ThemeSwitcher from "./ThemeSwitcher";
 import UserMenu from "./UserMenu";
@@ -42,11 +43,27 @@ export function PageHeader({
     </header>
   );
 }
+/** True at ≤900px — matches the sidebar breakpoint in Layout.module.css.
+ *  Only one UserMenu instance is mounted at a time thanks to this hook. */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia("(max-width: 900px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isMobile;
+}
+
 
 export default function Layout() {
   const { authenticated } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const items = useMemo(
     () =>
@@ -73,6 +90,8 @@ export default function Layout() {
 
   return (
     <div className={s.shell}>
+      {/* Skip-to-content: first focusable on the page — WCAG 2.4.1 */}
+      <a href="#main" className={s.skipLink}>Skip to main content</a>
       <aside className={s.sidebar}>
         <div className={s.brand}>
           <img src="/Dsalogo.png" alt="DSA Tracker" width="52" height="52" />
@@ -99,9 +118,13 @@ export default function Layout() {
           <ThemeSwitcher />
         </div>
 
-        <div className={s.auth}>
-          <UserMenu />
-        </div>
+        {/* Desktop-only auth — not rendered on mobile so only one UserMenu
+            instance exists in the React tree at a time (see useIsMobile). */}
+        {!isMobile && (
+          <div className={s.auth}>
+            <UserMenu />
+          </div>
+        )}
 
         <div className={s.footer}>
           <div className={s.footerText}>
@@ -113,9 +136,11 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className={s.main}>
+      <main id="main" className={s.main}>
         <div className={s.page}>
-          <RouteTransitions />
+          <ErrorBoundary>
+            <RouteTransitions />
+          </ErrorBoundary>
         </div>
       </main>
 
@@ -132,10 +157,15 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Mobile auth strip — visible only when sidebar is hidden (≤900px) */}
-      <div className={s.mobileAuth}>
-        <UserMenu />
-      </div>
+      {/* Mobile auth strip — only mounted when sidebar is hidden (≤900px).
+          Combined with the !isMobile guard above, exactly one UserMenu
+          instance is in the React tree at any given time. */}
+      {isMobile && (
+        <div className={s.mobileAuth}>
+          <ThemeSwitcher compact />
+          <UserMenu />
+        </div>
+      )}
     </div>
   );
 }

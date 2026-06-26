@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { enterSpring, quickSpring } from "../styles/springs";
 import s from "./Modal.module.css";
 
@@ -25,6 +25,8 @@ export default function Modal({ open, onClose, title, children, size = "md" }: M
   const dialogRef = useRef<HTMLDivElement>(null);
   // Track the element that had focus before the modal opened so we can restore it.
   const triggerRef = useRef<HTMLElement | null>(null);
+  // Stable ID for aria-labelledby association.
+  const titleId = useId();
 
   // Escape key + body scroll lock
   useEffect(() => {
@@ -101,15 +103,14 @@ export default function Modal({ open, onClose, title, children, size = "md" }: M
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
+            aria-labelledby={title ? titleId : undefined}
           >
-            {title && (
-              <div className={s.header}>
-                <h3 className={s.title}>{title}</h3>
-                <button className={s.close} onClick={onClose} aria-label="Close">
-                  <CloseIcon />
-                </button>
-              </div>
-            )}
+            <div className={s.header}>
+              {title && <h3 id={titleId} className={s.title}>{title}</h3>}
+              <button className={s.close} onClick={onClose} aria-label="Close">
+                <CloseIcon />
+              </button>
+            </div>
             <div className={s.body}>{children}</div>
           </motion.div>
         </motion.div>

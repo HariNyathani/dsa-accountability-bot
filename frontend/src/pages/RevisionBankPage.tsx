@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRevisionBank, type RevisionItem } from "../hooks/useRevisionBank";
 import GlassCard from "../components/GlassCard";
 import LiquidCapsule from "../components/LiquidCapsule";
@@ -41,7 +41,19 @@ function ProblemRow({
 }) {
   const overdue = item.days_remaining !== undefined && item.days_remaining < 0;
   return (
-    <div className={s.row} onClick={() => onOpen(item)}>
+    <div
+      className={s.row}
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(item)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(item);
+        }
+      }}
+      aria-label={`Open review for ${item.title}`}
+    >
       <div className={s.rowMain}>
         <div className={s.rowTitle}>
           <span className={s.rowName}>#{item.problem_id} · {item.title}</span>
@@ -94,11 +106,14 @@ export default function RevisionBankPage() {
     else if (currentTab === "all") fetchPagedHistory(page, limit);
   }, [currentTab, page, fetchDueItems, fetchPagedHistory]);
 
+  const handleCloseModal = useCallback(() => setSelectedProblem(null), []);
+
   const handleReview = async (problemId: number, confidence: number) => {
     await submitReview(problemId, confidence);
     setSelectedProblem(null);
+    // submitReview already re-fetches due items internally;
+    // only fetch paged history here to refresh the Progress tab.
     fetchPagedHistory(1, limit);
-    fetchDueItems();
   };
 
   const totalReviews = allRevisionItems.filter((i) => i.last_reviewed_at !== null).length;
@@ -217,7 +232,7 @@ export default function RevisionBankPage() {
 
       <Modal
         open={!!selectedProblem}
-        onClose={() => setSelectedProblem(null)}
+        onClose={handleCloseModal}
         title={selectedProblem ? `#${selectedProblem.problem_id} · ${selectedProblem.title}` : ""}
       >
         {selectedProblem && (

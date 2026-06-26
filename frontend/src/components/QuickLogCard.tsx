@@ -170,6 +170,8 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
           <motion.div
             key={feedback.message + feedback.type}
             className={`${s.feedback} ${feedback.type === "success" ? s.feedbackOk : s.feedbackBad}`}
+            role="status"
+            aria-live="polite"
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
