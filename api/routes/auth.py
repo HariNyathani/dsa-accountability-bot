@@ -128,6 +128,15 @@ async def callback(code: str, request: Request):
         max_age=60 * 60 * 24 * 30,  # 30 days
         path="/",
     )
+    response.set_cookie(
+        key="dsa_session_exists",
+        value="1",
+        httponly=False,
+        secure=config.COOKIE_SECURE,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
     return response
 
 
@@ -363,4 +372,5 @@ async def logout():
         secure=config.COOKIE_SECURE,
         samesite="lax",
     )
+    response.delete_cookie(key="dsa_session_exists", path="/")
     return response

@@ -27,12 +27,20 @@ class DatabaseManager:
         self.dsn = dsn
         self.pool = None
 
+    def init_pool(self) -> None:
+        """Eagerly create the connection pool. Called from app startup."""
+        if self.pool:
+            return
+        if not self.dsn:
+            raise RuntimeError("Database connection pool is not initialized (DATABASE_URL may be missing).")
+        self.pool = SimpleConnectionPool(5, 25, self.dsn)
+
     @contextmanager
     def get_connection(self):
         if not self.pool:
             if not self.dsn:
                 raise RuntimeError("Database connection pool is not initialized (DATABASE_URL may be missing).")
-            self.pool = SimpleConnectionPool(1, 10, self.dsn)
+            self.pool = SimpleConnectionPool(5, 25, self.dsn)
         conn = self.pool.getconn()
         try:
             with conn:
@@ -738,6 +746,35 @@ async def get_leaderboard_data() -> dict:
                 total_registered_users = cur.fetchone()[0]
 
                 cur.execute("""
+                    WITH msg_counts AS (
+                        SELECT
+                            p.user_id,
+                            COALESCE(SUM(
+                                CASE
+                                    WHEN p.parsed_fields IS NOT NULL
+                                         AND p.parsed_fields ? 'log'
+                                         AND jsonb_array_length(p.parsed_fields->'log') > 0
+                                    THEN (
+                                        SELECT COALESCE(SUM((elem->>'question_count')::int), 0)
+                                        FROM jsonb_array_elements(p.parsed_fields->'log') AS elem
+                                    )
+                                    WHEN p.topics IS NOT NULL AND p.topics != ''
+                                    THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1
+                                    ELSE 0
+                                END
+                            ), 0)::bigint AS total_messages
+                        FROM progress_logs p
+                        WHERE p.message_type NOT IN ('plan', 'rest')
+                        GROUP BY p.user_id
+                    ),
+                    day_counts AS (
+                        SELECT
+                            user_id,
+                            COUNT(*) FILTER (WHERE posted_flag = 1) AS days_posted,
+                            COUNT(*) AS total_days
+                        FROM daily_status
+                        GROUP BY user_id
+                    )
                     SELECT
                         u.user_id,
                         u.discord_username,
@@ -745,24 +782,13 @@ async def get_leaderboard_data() -> dict:
                         COALESCE(s.current_streak, 0) as current_streak,
                         COALESCE(s.longest_streak, 0) as longest_streak,
                         COALESCE(s.last_post_date::text, '') as last_post_date,
-                        (SELECT COALESCE(SUM(
-                            CASE
-                                WHEN p.parsed_fields IS NOT NULL
-                                     AND p.parsed_fields ? 'log'
-                                     AND jsonb_array_length(p.parsed_fields->'log') > 0
-                                THEN (
-                                    SELECT COALESCE(SUM((elem->>'question_count')::int), 0)
-                                    FROM jsonb_array_elements(p.parsed_fields->'log') AS elem
-                                )
-                                WHEN p.topics IS NOT NULL AND p.topics != ''
-                                THEN LENGTH(p.topics) - LENGTH(REPLACE(p.topics, ',', '')) + 1
-                                ELSE 0
-                            END
-                        ), 0) FROM progress_logs p WHERE p.user_id = u.user_id AND p.message_type NOT IN ('plan', 'rest')) as total_messages,
-                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id AND d.posted_flag = 1) as days_posted,
-                        (SELECT COUNT(*) FROM daily_status d WHERE d.user_id = u.user_id) as total_days
+                        COALESCE(m.total_messages, 0) as total_messages,
+                        COALESCE(d.days_posted, 0) as days_posted,
+                        COALESCE(d.total_days, 0) as total_days
                     FROM users u
                     LEFT JOIN streaks s ON u.user_id = s.user_id
+                    LEFT JOIN msg_counts m ON u.user_id = m.user_id
+                    LEFT JOIN day_counts d ON u.user_id = d.user_id
                     WHERE u.is_active = 1
                       AND COALESCE(s.current_streak, 0) >= 1
                 """)

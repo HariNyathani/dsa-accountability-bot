@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from api.middleware.error_handler import register_error_handlers
 from api.middleware.request_logger import RequestLoggingMiddleware
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         """Startup / shutdown lifecycle."""
         from db import database as db
+        db.db_manager.init_pool()
         await db.init_db()
         health.set_start_time(time.time())
         logger.info("API started — database initialised, routes registered.")
@@ -61,6 +63,9 @@ def create_app() -> FastAPI:
 
     # ── Request logging ──────────────────────────────────────────────────
     app.add_middleware(RequestLoggingMiddleware)
+
+    # ── GZip compression ─────────────────────────────────────────────────
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # ── Error handlers ───────────────────────────────────────────────────
     register_error_handlers(app)

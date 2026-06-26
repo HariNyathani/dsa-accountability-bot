@@ -9,8 +9,10 @@ GET /leaderboard/consistency   — sorted by consistency %
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from api.middleware.cache import cached_route
+from api.middleware.cache_headers import public_cache
 from api.schemas.common import APIResponse
 from api.schemas.leaderboard import LeaderboardEntry, LeaderboardResponse
 from db import database
@@ -67,6 +69,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
 
 # ── Default ──────────────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "",
     response_model=APIResponse[LeaderboardResponse],
@@ -77,6 +80,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
 async def get_leaderboard(
     sort_by: str = Query("streak", description="Sort criterion"),
     limit: int = Query(25, ge=1, le=100, description="Max entries to return"),
+    _cache: None = Depends(public_cache),
 ):
     if sort_by not in _VALID_SORTS:
         sort_by = "streak"
@@ -86,6 +90,7 @@ async def get_leaderboard(
 
 # ── Convenience Aliases ──────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/streaks",
     response_model=APIResponse[LeaderboardResponse],
@@ -94,10 +99,12 @@ async def get_leaderboard(
 )
 async def leaderboard_streaks(
     limit: int = Query(25, ge=1, le=100),
+    _cache: None = Depends(public_cache),
 ):
     return APIResponse(data=await _build_leaderboard("streak", limit))
 
 
+@cached_route(60)
 @router.get(
     "/consistency",
     response_model=APIResponse[LeaderboardResponse],
@@ -106,5 +113,6 @@ async def leaderboard_streaks(
 )
 async def leaderboard_consistency(
     limit: int = Query(25, ge=1, le=100),
+    _cache: None = Depends(public_cache),
 ):
     return APIResponse(data=await _build_leaderboard("consistency", limit))

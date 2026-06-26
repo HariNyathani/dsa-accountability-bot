@@ -18,6 +18,8 @@ from typing import Optional
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from api.middleware.cache import cached_route
+from api.middleware.cache_headers import public_cache
 from api.middleware.error_handler import NotFoundError
 from api.middleware.auth import get_current_user
 from api.schemas.common import APIResponse, PaginatedResponse, PaginationMeta
@@ -139,6 +141,7 @@ def _verify_owner(user_id: str, current_user):
 
 # ── List Users ───────────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "",
     response_model=PaginatedResponse[UserBase],
@@ -148,6 +151,7 @@ def _verify_owner(user_id: str, current_user):
 async def list_users(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    _cache: None = Depends(public_cache),
 ):
     users = await database.get_all_active_users()
     total = len(users)
@@ -235,19 +239,26 @@ async def update_username_route(payload: UsernameUpdateRequest, current_user = D
             raise HTTPException(status_code=409, detail="This username is already taken.")
 
     await database.set_username(int(payload.user_id), clean_username)
-    # Return the updated profile
-    return await get_user(payload.user_id, current_user)
+    # Return the updated profile (uncached helper, never read from the route cache)
+    return await _get_user_response(payload.user_id, current_user)
 
 
 # ── Single User ──────────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/{identifier}",
     response_model=APIResponse[UserDetail],
     summary="Get user details",
     description="Returns full user profile. Accepts numeric Discord ID or vanity username. Public access; personal fields redacted for non-owners.",
 )
-async def get_user(identifier: str, current_user = Depends(get_current_user)):
+async def get_user(identifier: str, current_user = Depends(get_current_user), _cache: None = Depends(public_cache)):
+    return await _get_user_response(identifier, current_user)
+
+
+async def _get_user_response(identifier: str, current_user):
+    """Uncached implementation of get_user — call this from mutation handlers
+    so they always return the freshly-saved profile rather than a stale cached copy."""
     # Public route — no hard auth required. current_user is None for guests.
     user = await _get_user_or_404(identifier)
     user_id_str = str(user["user_id"])
@@ -296,7 +307,7 @@ async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, cur
     resolved = await _get_user_or_404(user_id)
     uid_int = resolved["user_id"]
     await database.update_user_email(uid_int, payload.email)
-    return await get_user(user_id, current_user)
+    return await _get_user_response(user_id, current_user)
 
 
 @router.put(
@@ -315,18 +326,19 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
             with conn.cursor() as cur:
                 cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (payload.timezone, uid_int))
     await asyncio.to_thread(_update)
-    return await get_user(user_id, current_user)
+    return await _get_user_response(user_id, current_user)
 
 
 # ── Dashboard Aggregate ──────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/{user_id}/dashboard-aggregate",
     response_model=APIResponse[DashboardAggregateResponse],
     summary="Get combined dashboard data",
     description="Returns topics, difficulty, and stats in a single pass. Publicly accessible without authentication.",
 )
-async def get_dashboard_aggregate(user_id: str):
+async def get_dashboard_aggregate(user_id: str, _cache: None = Depends(public_cache)):
     # Public route — no auth required
     resolved = await _get_user_or_404(user_id)
     uid_int = resolved["user_id"]

@@ -10,8 +10,10 @@ import logging
 from collections import Counter
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from api.middleware.cache import cached_route
+from api.middleware.cache_headers import public_cache
 from api.schemas.analytics import (
     ActivityAnalytics,
     DailyActivity,
@@ -31,6 +33,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 # ── Platform Overview ────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/overview",
     response_model=APIResponse[PlatformOverview],
@@ -38,7 +41,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
     description="Aggregate metrics across all active users: total users, messages, "
                 "average consistency, and the global longest streak.",
 )
-async def platform_overview():
+async def platform_overview(_cache: None = Depends(public_cache)):
     leaderboard_result = await database.get_leaderboard_data()
     total_users = leaderboard_result["total_registered_users"]
     leaderboard = leaderboard_result["rankings"]
@@ -77,6 +80,7 @@ async def platform_overview():
 
 # ── Topic Analytics ──────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/topics",
     response_model=APIResponse[TopicAnalytics],
@@ -86,6 +90,7 @@ async def platform_overview():
 )
 async def global_topics(
     limit: int = Query(20, ge=1, le=50, description="Max topics to return"),
+    _cache: None = Depends(public_cache),
 ):
     # Single bulk query — replaces per-user N+1 loop
     logs = await database.get_all_progress_topics()
@@ -108,6 +113,7 @@ async def global_topics(
 
 # ── Activity Trend ───────────────────────────────────────────────────────────
 
+@cached_route(60)
 @router.get(
     "/activity",
     response_model=APIResponse[ActivityAnalytics],
@@ -117,6 +123,7 @@ async def global_topics(
 )
 async def activity_trend(
     period: str = Query("30d", description="Time window: '7d', '30d', or 'all'"),
+    _cache: None = Depends(public_cache),
 ):
     today = today_str()
 

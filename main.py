@@ -18,6 +18,8 @@ import threading
 
 import config
 
+WORKERS = int(os.getenv("API_WORKERS", "1"))
+
 # ── Logging (must happen before any module-level loggers) ────────────────────
 
 os.makedirs("logs", exist_ok=True)
@@ -36,14 +38,17 @@ logger = logging.getLogger("dsa_bot.launcher")
 
 # ── API Server ───────────────────────────────────────────────────────────────
 
-def start_api_server(host: str = "0.0.0.0", port: int = 8000) -> None:
+def start_api_server(host: str = "0.0.0.0", port: int = 8000, workers: int = 1) -> None:
     """Start the FastAPI server with uvicorn (blocking)."""
     import uvicorn
     from api.app import create_app
 
     app = create_app()
-    logger.info("Starting API server on %s:%d ...", host, port)
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    logger.info("Starting API server on %s:%d (workers=%d) ...", host, port, workers)
+    if workers > 1:
+        uvicorn.run(app, host=host, port=port, log_level="info", workers=workers)
+    else:
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 def start_api_thread(host: str = "0.0.0.0", port: int = 8000) -> threading.Thread:
@@ -78,12 +83,15 @@ def main() -> None:
                         help="API server port (default: 8000)")
     parser.add_argument("--host", type=str, default=os.getenv("API_HOST", "0.0.0.0"),
                         help="API server host (default: 0.0.0.0)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Number of uvicorn workers (API-only mode; default: env API_WORKERS or 1)")
     args = parser.parse_args()
 
     if args.api:
         # API-only mode
+        workers = args.workers if args.workers is not None else WORKERS
         logger.info("Launching in API-only mode.")
-        start_api_server(args.host, args.port)
+        start_api_server(args.host, args.port, workers=workers)
 
     elif args.bot:
         # Bot-only mode (original behaviour)

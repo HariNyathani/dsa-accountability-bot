@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, Link } from "react-router-dom";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { quickSpring } from "../styles/springs";
@@ -93,13 +93,13 @@ export default function Layout() {
       {/* Skip-to-content: first focusable on the page — WCAG 2.4.1 */}
       <a href="#main" className={s.skipLink}>Skip to main content</a>
       <aside className={s.sidebar}>
-        <div className={s.brand}>
+        <Link to="/" className={`${s.brand} ${s.brandLink}`}>
           <img src="/Dsalogo.png" alt="DSA Tracker" width="52" height="52" />
           <div>
             <h1>DSA Tracker</h1>
             <p>Accountability</p>
           </div>
-        </div>
+        </Link>
 
         <nav className={s.nav}>
           <div className={s.navScroll}>

@@ -52,6 +52,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     async function checkSession() {
+      const hasSessionMarker = document.cookie.split("; ").some(
+        (c) => c === "dsa_session_exists=1" || c.startsWith("dsa_session_exists=")
+      );
+      if (!hasSessionMarker) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
       try {
         const res = await fetch("/auth/me", { credentials: "include" });
         if (res.ok) {
