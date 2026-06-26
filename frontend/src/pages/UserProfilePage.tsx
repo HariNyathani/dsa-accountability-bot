@@ -9,7 +9,7 @@ import { api } from "../services/api";
 import { useApi } from "../hooks/useApi";
 import StatCard from "../components/StatCard";
 import GlassCard from "../components/GlassCard";
-import { SkeletonCards, SkeletonChart, SkeletonRows } from "../components/Loader";
+import { SkeletonCards, SkeletonCard, SkeletonRows } from "../components/Loader";
 import { ErrorState, EmptyState } from "../components/EmptyState";
 import Heatmap from "../components/Heatmap";
 import Button from "../components/Button";
@@ -28,13 +28,13 @@ export default function UserProfilePage() {
   const uid = identifier || userId || "";
   const { user: authUser, authenticated, loading: authLoading } = useAuth();
 
-  const validId = /^\d{17,21}$/.test(uid) || /^[a-z0-9_]{4,20}$/.test(uid);
+  const validId = /^\d{17,19}$/.test(uid) || /^[a-z0-9_]{4,20}$/.test(uid);
 
-  const user = useApi(() => api.user(uid), [uid], validId);
-  const stats = useApi(() => api.userStats(uid), [uid], validId);
-  const aggregate = useApi(() => api.dashboardAggregate(uid), [uid], validId);
-  const heatmap = useApi(() => api.heatmap(uid), [uid], validId);
-  const sums = useApi(() => api.summaries(uid), [uid], validId);
+  const user = useApi((signal) => api.user(uid, { signal }), [uid], validId);
+  const stats = useApi((signal) => api.userStats(uid, { signal }), [uid], validId);
+  const aggregate = useApi((signal) => api.dashboardAggregate(uid, { signal }), [uid], validId);
+  const heatmap = useApi((signal) => api.heatmap(uid, { signal }), [uid], validId);
+  const sums = useApi((signal) => api.summaries(uid, { signal }), [uid], validId);
 
   const resolvedUserId = user.data?.user_id || "";
   const isOwner = !authLoading && authenticated && !!resolvedUserId && authUser?.id === resolvedUserId;
@@ -146,8 +146,11 @@ export default function UserProfilePage() {
   };
 
   if (!validId) return <EmptyState icon="⚠️" title="Invalid User" message={`The identifier "${uid}" is not valid.`} />;
-  if (user.error) return <ErrorState message={user.error} onRetry={user.refetch} />;
-  if (user.loading) return <SkeletonCards count={6} />;
+  // Only short-circuit to ErrorState if we have no user data to show.
+  // If we have stale data and a mid-refetch error, keep showing the data
+  // with a non-blocking inline error indicator further down.
+  if (user.error && !user.data) return <ErrorState message={user.error} onRetry={user.refetch} />;
+  if (user.loading && !user.data) return <SkeletonCards count={6} />;
 
   const u = user.data;
   const ss = stats.data;
@@ -167,6 +170,12 @@ export default function UserProfilePage() {
       <div className={s.back}>
         <Button variant="ghost" size="sm" onClick={() => nav(-1)}>← Back</Button>
       </div>
+
+      {user.error && user.data && (
+        <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 16, padding: "10px 14px", background: "color-mix(in srgb, var(--diff-hard) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--diff-hard) 20%, transparent)", borderRadius: 8 }}>
+          ⚠ Showing cached data — refresh failed: {user.error}
+        </div>
+      )}
 
       <GlassCard radius={32} padded glow className={s.header}>
         <div className={s.avatar}>{initials}</div>
@@ -206,7 +215,7 @@ export default function UserProfilePage() {
         <GlassCard padded glow fill>
           <div className={sh.title}>📚 Topic Distribution</div>
           <div className={sh.bodyCenter}>
-            {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+            {aggregate.loading ? <SkeletonCard /> : t && t.frequency.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
                   <Pie
@@ -249,7 +258,7 @@ export default function UserProfilePage() {
       <div className={`${sh.chartContainer} ${s.row}`}>
         <GlassCard padded glow>
           <div className={sh.title}>📊 Topic Frequency</div>
-          {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+          {aggregate.loading ? <SkeletonCard /> : t && t.frequency.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(200, t.frequency.slice(0, 10).length * 34)}>
               <BarChart data={t.frequency.slice(0, 10)} layout="vertical">
                 <CartesianGrid {...gridProps} />

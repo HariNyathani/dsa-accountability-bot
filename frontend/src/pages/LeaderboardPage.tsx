@@ -23,15 +23,22 @@ const MEDALS = ["🥇", "🥈", "🥉"];
 export default function LeaderboardPage() {
   const [sortBy, setSortBy] = useState<string>("streak");
   const nav = useNavigate();
-  const { data, loading, error, refetch } = useApi(
-    () => api.leaderboard(sortBy, 50),
+  const { data, loading, error, refetch } = useApi((signal) => api.leaderboard(sortBy, 50, { signal }),
     [sortBy]
   );
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
+  // Only blank the page when there is no cached data at all.
+  // If we have stale data and a mid-refetch error (e.g. sort change + network blip),
+  // keep showing the table with a non-blocking inline warning.
+  if (error && !data) return <ErrorState message={error} onRetry={refetch} />;
 
   return (
     <>
+      {error && data && (
+        <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12, padding: "8px 12px", background: "color-mix(in srgb, var(--diff-hard) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--diff-hard) 20%, transparent)", borderRadius: 8 }}>
+          ⚠ Showing cached data — refresh failed: {error}
+        </div>
+      )}
       <PageHeader
         title="Leaderboard"
         subtitle={`Rankings across ${data?.total_users ?? "…"} users — ${data?.active_streaks ?? 0} active streaks`}

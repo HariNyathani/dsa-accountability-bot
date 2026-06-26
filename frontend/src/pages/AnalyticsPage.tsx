@@ -7,7 +7,7 @@ import { api } from "../services/api";
 import { useApi } from "../hooks/useApi";
 import StatCard from "../components/StatCard";
 import GlassCard from "../components/GlassCard";
-import { SkeletonCards, SkeletonChart } from "../components/Loader";
+import { SkeletonCards, SkeletonCard } from "../components/Loader";
 import { EmptyState, ErrorState } from "../components/EmptyState";
 import { PageHeader } from "../components/Layout";
 import LiquidCapsule from "../components/LiquidCapsule";
@@ -25,12 +25,15 @@ const PERIOD_ITEMS = [
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<string>("30d");
-  const overview = useApi(() => api.overview(), []);
-  const topics = useApi(() => api.topics(15), []);
-  const activity = useApi(() => api.activity(period), [period]);
+  const overview = useApi((signal) => api.overview({ signal }), []);
+  const topics = useApi((signal) => api.topics(15, { signal }), []);
+  const activity = useApi((signal) => api.activity(period, { signal }), [period]);
 
-  if (overview.error) return <ErrorState message={overview.error} onRetry={overview.refetch} />;
+  // Only short-circuit to ErrorState if we have no data to show.
+  // If we have stale data and a mid-refetch error, keep showing the data
+  // with a non-blocking inline error indicator.
   const o = overview.data;
+  const showOverviewError = overview.error && !o;
 
   return (
     <>
@@ -39,16 +42,25 @@ export default function AnalyticsPage() {
         subtitle="Deep-dive into platform-wide DSA study patterns and engagement"
       />
 
-      {overview.loading ? (
+      {overview.loading && !o ? (
         <SkeletonCards count={4} cols={4} />
+      ) : showOverviewError ? (
+        <ErrorState message={overview.error!} onRetry={overview.refetch} />
       ) : (
         o && (
-          <div className={s.statsGrid} data-cols="4">
-            <StatCard icon="📚" value={topics.data?.unique_topics ?? 0} label="Unique Topics" accent="espresso" />
-            <StatCard icon="💬" value={topics.data?.total_mentions ?? 0} label="Questions Logged" accent="slate" />
-            <StatCard icon="📅" value={activity.data?.active_days ?? 0} label="Active Days" accent="sage" />
-            <StatCard icon="📊" value={`${o.avg_consistency_pct}%`} label="Avg Consistency" accent="amber" />
-          </div>
+          <>
+            {overview.error && (
+              <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12, padding: "8px 12px", background: "color-mix(in srgb, var(--diff-hard) 8%, transparent)", borderRadius: 8 }}>
+                ⚠ Showing cached data — refresh failed: {overview.error}
+              </div>
+            )}
+            <div className={s.statsGrid} data-cols="4">
+              <StatCard icon="📚" value={topics.data?.unique_topics ?? 0} label="Unique Topics" accent="espresso" />
+              <StatCard icon="💬" value={topics.data?.total_mentions ?? 0} label="Questions Logged" accent="slate" />
+              <StatCard icon="📅" value={activity.data?.active_days ?? 0} label="Active Days" accent="sage" />
+              <StatCard icon="📊" value={`${o.avg_consistency_pct}%`} label="Avg Consistency" accent="amber" />
+            </div>
+          </>
         )
       )}
 
@@ -67,7 +79,7 @@ export default function AnalyticsPage() {
             />
           </div>
           {activity.loading ? (
-            <SkeletonChart />
+            <SkeletonCard />
           ) : (
             activity.data && (
               <ResponsiveContainer width="100%" height={320}>
@@ -100,7 +112,7 @@ export default function AnalyticsPage() {
           <div className={s.title}>📚 DSA Topic Practice Totals</div>
           <div className={s.subtitle}>Weighted top practiced topics across all users</div>
           {topics.loading ? (
-            <SkeletonChart />
+            <SkeletonCard />
           ) : topics.data && topics.data.top_topics.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(300, topics.data.top_topics.length * 38)}>
               <BarChart data={topics.data.top_topics} layout="vertical" margin={{ left: 20 }}>

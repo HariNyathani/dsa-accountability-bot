@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryResult, setSummaryResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [healthData, setHealthData] = useState<any>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setUsersLoading(true);
@@ -72,7 +73,9 @@ export default function AdminPage() {
   useEffect(() => {
     let cancelled = false;
     fetchUsers();
-    api.health().then((r) => { if (!cancelled) setHealthData(r.data); }).catch(() => {});
+    api.health()
+      .then((r) => { if (!cancelled) { setHealthData(r.data); setHealthError(null); } })
+      .catch((e) => { if (!cancelled) setHealthError(e?.message ?? "Unreachable"); });
     return () => { cancelled = true; };
   }, [fetchUsers]);
 
@@ -369,7 +372,12 @@ export default function AdminPage() {
             <div className={s.healthGrid}>
               <div className={s.healthBox}>
                 <div className={s.hl}>API Status</div>
-                <div className={s.hv} style={{ color: "var(--diff-easy)" }}>{healthData ? "Online" : "Checking…"}</div>
+                <div
+                  className={s.hv}
+                  style={{ color: healthError ? "var(--diff-hard)" : "var(--diff-easy)" }}
+                >
+                  {healthError ? "Unreachable" : healthData ? "Online" : "Checking…"}
+                </div>
               </div>
               <div className={s.healthBox}>
                 <div className={s.hl}>Database</div>

@@ -58,7 +58,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             )}
             <div className={s.actions}>
               <button className={s.btnGhost} onClick={this.handleReset}>
-                ← Go back
+                ↻ Try again
               </button>
               <button className={s.btnPrimary} onClick={this.handleReload}>
                 Reload page

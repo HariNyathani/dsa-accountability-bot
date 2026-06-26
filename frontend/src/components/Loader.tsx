@@ -1,6 +1,8 @@
 import { Skeleton as Sk, SkeletonCard } from "./Skeleton";
 import s from "./Loader.module.css";
 
+export { SkeletonCard };
+
 export function Loader() {
   return (
     <div className={s.center}>
@@ -18,8 +20,6 @@ export function SkeletonCards({ count = 6, cols = 6 }: { count?: number; cols?: 
     </div>
   );
 }
-
-export { SkeletonCard as SkeletonChart };
 
 export function SkeletonRows({ count = 6 }: { count?: number }) {
   return (

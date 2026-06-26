@@ -7,7 +7,7 @@ import { api } from "../services/api";
 import { useApi } from "../hooks/useApi";
 import StatCard from "../components/StatCard";
 import GlassCard from "../components/GlassCard";
-import { SkeletonCards, SkeletonChart } from "../components/Loader";
+import { SkeletonCards, SkeletonCard } from "../components/Loader";
 import { ErrorState, EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/Layout";
 import Button from "../components/Button";
@@ -19,13 +19,16 @@ import s from "../styles/shared.module.css";
 
 export default function DashboardPage() {
   const nav = useNavigate();
-  const overview = useApi(() => api.overview(), []);
-  const activity = useApi(() => api.activity("30d"), []);
-  const topics = useApi(() => api.topics(10), []);
-  const lb = useApi(() => api.leaderboard("streak", 5), []);
+  const overview = useApi((signal) => api.overview({ signal }), []);
+  const activity = useApi((signal) => api.activity("30d", { signal }), []);
+  const topics = useApi((signal) => api.topics(10, { signal }), []);
+  const lb = useApi((signal) => api.leaderboard("streak", 5, { signal }), []);
 
-  if (overview.error) return <ErrorState message={overview.error} onRetry={overview.refetch} />;
+  // Only short-circuit to ErrorState if we have no data to show.
+  // If we have stale data and a mid-refetch error, keep showing the data
+  // with a non-blocking inline error indicator.
   const o = overview.data;
+  const showOverviewError = overview.error && !o;
 
   return (
     <>
@@ -35,18 +38,27 @@ export default function DashboardPage() {
       />
 
       {/* ── Stats ───────────────────────────────────────────────────── */}
-      {overview.loading ? (
+      {overview.loading && !o ? (
         <SkeletonCards count={6} />
+      ) : showOverviewError ? (
+        <ErrorState message={overview.error!} onRetry={overview.refetch} />
       ) : (
         o && (
-          <div className={s.statsGrid}>
-            <StatCard icon="👥" value={o.total_users} label="Total Users" accent="slate" />
-            <StatCard icon="🔥" value={o.active_users} label="Active Streaks" accent="sage" />
-            <StatCard icon="💬" value={o.total_messages} label="Total Messages" accent="slate" />
-            <StatCard icon="📈" value={`${o.avg_consistency_pct}%`} label="Avg Consistency" accent="amber" />
-            <StatCard icon="⚡" value={o.avg_streak.toFixed(1)} label="Avg Streak" accent="espresso" />
-            <StatCard icon="🏆" value={o.longest_streak_global} label="Best Streak" accent="clay" />
-          </div>
+          <>
+            {overview.error && (
+              <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12, padding: "8px 12px", background: "color-mix(in srgb, var(--diff-hard) 8%, transparent)", borderRadius: 8 }}>
+                ⚠ Showing cached data — refresh failed: {overview.error}
+              </div>
+            )}
+            <div className={s.statsGrid}>
+              <StatCard icon="👥" value={o.total_users} label="Total Users" accent="slate" />
+              <StatCard icon="🔥" value={o.active_users} label="Active Streaks" accent="sage" />
+              <StatCard icon="💬" value={o.total_messages} label="Total Messages" accent="slate" />
+              <StatCard icon="📈" value={`${o.avg_consistency_pct}%`} label="Avg Consistency" accent="amber" />
+              <StatCard icon="⚡" value={o.avg_streak.toFixed(1)} label="Avg Streak" accent="espresso" />
+              <StatCard icon="🏆" value={o.longest_streak_global} label="Best Streak" accent="clay" />
+            </div>
+          </>
         )
       )}
 
@@ -55,7 +67,7 @@ export default function DashboardPage() {
         <GlassCard padded glow>
           <div className={s.title}>📈 Activity Trend (30 Days)</div>
           {activity.loading ? (
-            <SkeletonChart />
+            <SkeletonCard />
           ) : (
             activity.data && (
               <ResponsiveContainer width="100%" height={280}>
@@ -81,7 +93,7 @@ export default function DashboardPage() {
         <GlassCard padded glow>
           <div className={s.title}>📚 Topic Distribution</div>
           {topics.loading ? (
-            <SkeletonChart />
+            <SkeletonCard />
           ) : topics.data && topics.data.top_topics.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
@@ -121,7 +133,7 @@ export default function DashboardPage() {
             </Button>
           </div>
           {lb.loading ? (
-            <SkeletonChart />
+            <SkeletonCard />
           ) : (
             lb.data && lb.data.entries.length > 0 && (
               <ResponsiveContainer width="100%" height={220}>

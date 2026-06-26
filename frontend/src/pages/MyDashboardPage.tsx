@@ -8,7 +8,7 @@ import { useApi } from "../hooks/useApi";
 import { useAuth } from "../contexts/AuthContext";
 import StatCard from "../components/StatCard";
 import GlassCard from "../components/GlassCard";
-import { SkeletonCards, SkeletonChart, SkeletonRows } from "../components/Loader";
+import { SkeletonCards, SkeletonCard, SkeletonRows } from "../components/Loader";
 import { EmptyState, ErrorState } from "../components/EmptyState";
 import QuickLogCard from "../components/QuickLogCard";
 import RecentActivity from "../components/RecentActivity";
@@ -34,12 +34,12 @@ export default function MyDashboardPage() {
   const uid = user?.id ?? "";
   const enabled = authenticated && !!uid;
 
-  const userInfo = useApi(() => api.user(uid), [uid], enabled);
-  const aggregate = useApi(() => api.dashboardAggregate(uid), [uid], enabled);
-  const sums = useApi(() => api.summaries(uid), [uid], enabled);
-  const remind = useApi(() => api.reminders(uid), [uid], enabled);
-  const activity = useApi(() => api.userActivity(uid), [uid], enabled);
-  const heatmap = useApi(() => api.heatmap(uid), [uid], enabled);
+  const userInfo = useApi((signal) => api.user(uid, { signal }), [uid], enabled);
+  const aggregate = useApi((signal) => api.dashboardAggregate(uid, { signal }), [uid], enabled);
+  const sums = useApi((signal) => api.summaries(uid, { signal }), [uid], enabled);
+  const remind = useApi((signal) => api.reminders(uid, { signal }), [uid], enabled);
+  const activity = useApi((signal) => api.userActivity(uid, { signal }), [uid], enabled);
+  const heatmap = useApi((signal) => api.heatmap(uid, { signal }), [uid], enabled);
 
   // Not authenticated — friendly prompt
   if (!authLoading && !authenticated) {
@@ -51,7 +51,7 @@ export default function MyDashboardPage() {
           <h3>Authentication Required</h3>
           <p>Connect your Discord account to unlock your personal dashboard with detailed analytics, streak tracking, topic insights, and more.</p>
           <Button variant="primary" onClick={() => { window.location.href = "/auth/login"; }}>
-            {DiscordGlyph && <DiscordGlyph />}
+            {<DiscordGlyph />}
             Login with Discord
           </Button>
         </div>
@@ -61,20 +61,27 @@ export default function MyDashboardPage() {
 
   if (authLoading) return <SkeletonCards count={6} />;
 
-  if (userInfo.error) {
-    if (userInfo.error.includes("not found") || userInfo.error.includes("404")) {
-      return (
-        <>
-          <PageHeader title={`Welcome, ${user?.username}!`} subtitle="Your personalized dashboard" />
-          <div className={s.prompt}>
-            <div className={s.pIcon}>📋</div>
-            <h3>Not Yet Registered</h3>
-            <p>Your Discord account is linked, but you haven't registered with the DSA Accountability Bot yet. Use the <code>!register</code> command in Discord to start tracking your DSA progress.</p>
-            <p>Once registered, your personal stats, streaks, and topic analytics will appear here.</p>
-          </div>
-        </>
-      );
-    }
+  // "Not Yet Registered" is a special case — the user authenticated via Discord
+  // but hasn't run !register in the bot. Show the friendly prompt regardless
+  // of whether we have stale data.
+  if (userInfo.error && (userInfo.error.includes("not found") || userInfo.error.includes("404"))) {
+    return (
+      <>
+        <PageHeader title={`Welcome, ${user?.username}!`} subtitle="Your personalized dashboard" />
+        <div className={s.prompt}>
+          <div className={s.pIcon}>📋</div>
+          <h3>Not Yet Registered</h3>
+          <p>Your Discord account is linked, but you haven't registered with the DSA Accountability Bot yet. Use the <code>!register</code> command in Discord to start tracking your DSA progress.</p>
+          <p>Once registered, your personal stats, streaks, and topic analytics will appear here.</p>
+        </div>
+      </>
+    );
+  }
+
+  // Only short-circuit to ErrorState if we have no user data to show.
+  // If we have stale data and a mid-refetch error, keep showing the data
+  // with a non-blocking inline error indicator further down.
+  if (userInfo.error && !userInfo.data) {
     return <ErrorState message={userInfo.error} onRetry={userInfo.refetch} />;
   }
 
@@ -111,6 +118,12 @@ export default function MyDashboardPage() {
         </Button>
       </div>
 
+      {userInfo.error && userInfo.data && (
+        <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 16, padding: "10px 14px", background: "color-mix(in srgb, var(--diff-hard) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--diff-hard) 20%, transparent)", borderRadius: 8 }}>
+          ⚠ Showing cached data — refresh failed: {userInfo.error}
+        </div>
+      )}
+
       {/* Stats */}
       {aggregate.loading ? <SkeletonCards count={6} /> : st && (
         <div className={sh.statsGrid}>
@@ -143,7 +156,7 @@ export default function MyDashboardPage() {
           <GlassCard padded glow fill>
             <div className={sh.title}>📚 Your Topic Distribution</div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingRight: "16px" }}>
-              {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+              {aggregate.loading ? <SkeletonCard /> : t && t.frequency.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <PieChart>
                     <Pie
@@ -192,7 +205,7 @@ export default function MyDashboardPage() {
           <GlassCard padded glow fill>
             <div className={sh.title}>📊 Topic Frequency</div>
             <div style={{ marginTop: "24px" }}>
-              {aggregate.loading ? <SkeletonChart /> : t && t.frequency.length > 0 ? (
+              {aggregate.loading ? <SkeletonCard /> : t && t.frequency.length > 0 ? (
                 <ResponsiveContainer width="100%" height={Math.max(200, t.frequency.slice(0, 8).length * 34)}>
                   <BarChart data={t.frequency.slice(0, 8)} layout="vertical">
                     <CartesianGrid {...gridProps} />

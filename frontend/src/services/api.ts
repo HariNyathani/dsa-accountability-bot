@@ -82,96 +82,102 @@ import type {
 
 export const api = {
   // Health
-  health: () => request<APIResponse<HealthCheck>>("/health"),
-  status: () => request<APIResponse<SystemStatus>>("/status"),
+  health: (init?: RequestInit) => request<APIResponse<HealthCheck>>("/health", init),
+  status: (init?: RequestInit) => request<APIResponse<SystemStatus>>("/status", init),
 
   // Users — public profile endpoints use publicRequest so guests never see auth errors
-  users: (page = 1, perPage = 50) =>
-    request<PaginatedResponse<UserBase>>(`/users?page=${page}&per_page=${perPage}`),
-  user: (id: string) => publicRequest<UserDetail>(`/users/${id}`),
-  userStats: (id: string) => publicRequest<UserStats>(`/users/${id}/stats`),
-  userStreak: (id: string) => publicRequest<UserStreak>(`/users/${id}/streak`),
-  userTopics: (id: string) => publicRequest<UserTopics>(`/users/${id}/topics`),
-  userDifficulty: (id: string) => publicRequest<UserDifficulty>(`/users/${id}/difficulty`),
-  userActivity: (id: string) => publicRequest<UserActivityResponse>(`/users/${id}/activity`),
-  heatmap: (id: string) => publicRequest<HeatmapResponse>(`/users/${id}/heatmap`),
-  dashboardAggregate: (id: string) => publicRequest<DashboardAggregateResponse>(`/users/${id}/dashboard-aggregate`),
+  users: (page = 1, perPage = 50, init?: RequestInit) =>
+    request<PaginatedResponse<UserBase>>(`/users?page=${page}&per_page=${perPage}`, init),
+  user: (id: string, init?: RequestInit) => publicRequest<UserDetail>(`/users/${id}`, init),
+  userStats: (id: string, init?: RequestInit) => publicRequest<UserStats>(`/users/${id}/stats`, init),
+  userStreak: (id: string, init?: RequestInit) => publicRequest<UserStreak>(`/users/${id}/streak`, init),
+  userTopics: (id: string, init?: RequestInit) => publicRequest<UserTopics>(`/users/${id}/topics`, init),
+  userDifficulty: (id: string, init?: RequestInit) => publicRequest<UserDifficulty>(`/users/${id}/difficulty`, init),
+  userActivity: (id: string, init?: RequestInit) => publicRequest<UserActivityResponse>(`/users/${id}/activity`, init),
+  heatmap: (id: string, init?: RequestInit) => publicRequest<HeatmapResponse>(`/users/${id}/heatmap`, init),
+  dashboardAggregate: (id: string, init?: RequestInit) => publicRequest<DashboardAggregateResponse>(`/users/${id}/dashboard-aggregate`, init),
 
   // Username (vanity handle)
-  checkUsername: (username: string) =>
-    request<APIResponse<{ available: boolean; reason?: string }>>(`/users/check-username/${username}`),
-  updateUsername: (userId: string, username: string) =>
+  checkUsername: (username: string, init?: RequestInit) =>
+    request<APIResponse<{ available: boolean; reason?: string }>>(`/users/check-username/${username}`, init),
+  updateUsername: (userId: string, username: string, init?: RequestInit) =>
     request<APIResponse<UserDetail>>(`/users/settings/username`, {
       method: "PUT",
       body: JSON.stringify({ user_id: userId, username }),
+      ...init,
     }),
 
   // Leaderboard
-  leaderboard: (sortBy = "streak", limit = 25) =>
+  leaderboard: (sortBy = "streak", limit = 25, init?: RequestInit) =>
     request<APIResponse<LeaderboardResponse>>(
-      `/leaderboard?sort_by=${sortBy}&limit=${limit}`
+      `/leaderboard?sort_by=${sortBy}&limit=${limit}`,
+      init
     ),
 
   // Analytics
-  overview: () => request<APIResponse<PlatformOverview>>("/analytics/overview"),
-  topics: (limit = 20) =>
-    request<APIResponse<TopicAnalytics>>(`/analytics/topics?limit=${limit}`),
-  activity: (period = "30d") =>
-    request<APIResponse<ActivityAnalytics>>(`/analytics/activity?period=${period}`),
+  overview: (init?: RequestInit) => request<APIResponse<PlatformOverview>>("/analytics/overview", init),
+  topics: (limit = 20, init?: RequestInit) =>
+    request<APIResponse<TopicAnalytics>>(`/analytics/topics?limit=${limit}`, init),
+  activity: (period = "30d", init?: RequestInit) =>
+    request<APIResponse<ActivityAnalytics>>(`/analytics/activity?period=${period}`, init),
 
   // Summaries
-  summaries: (userId: string) =>
-    request<APIResponse<SummaryHistory>>(`/summaries/${userId}`),
-  weeklyReport: (userId: string, week = "last") =>
-    request<APIResponse<WeeklyReport>>(`/weekly-report/${userId}?week=${week}`),
+  summaries: (userId: string, init?: RequestInit) =>
+    request<APIResponse<SummaryHistory>>(`/summaries/${userId}`, init),
+  weeklyReport: (userId: string, week = "last", init?: RequestInit) =>
+    request<APIResponse<WeeklyReport>>(`/weekly-report/${userId}?week=${week}`, init),
 
   // Reminders
-  reminders: (userId: string) =>
-    request<APIResponse<ReminderSchedule>>(`/reminders/${userId}`),
+  reminders: (userId: string, init?: RequestInit) =>
+    request<APIResponse<ReminderSchedule>>(`/reminders/${userId}`, init),
 
-  updateEmail: (userId: string, email: string) =>
-    request<APIResponse<UserDetail>>(`/users/${userId}/email`, { method: "PUT", body: JSON.stringify({ email }) }),
+  updateEmail: (userId: string, email: string, init?: RequestInit) =>
+    request<APIResponse<UserDetail>>(`/users/${userId}/email`, { method: "PUT", body: JSON.stringify({ email }), ...init }),
 
-  updateTimezone: (userId: string, timezone: string) =>
-    request<APIResponse<UserDetail>>(`/users/${userId}/timezone`, { method: "PUT", body: JSON.stringify({ timezone }) }),
+  updateTimezone: (userId: string, timezone: string, init?: RequestInit) =>
+    request<APIResponse<UserDetail>>(`/users/${userId}/timezone`, { method: "PUT", body: JSON.stringify({ timezone }), ...init }),
 
   // Progress
-  logProgress: (data: { intent_type: string, topics: { canonical_topic: string, question_count: number, difficulty?: string }[], note?: string, target_date?: string }) =>
-    request<APIResponse<any>>("/progress", { method: "POST", body: JSON.stringify(data) }),
+  logProgress: (data: { intent_type: string, topics: { canonical_topic: string, question_count: number, difficulty?: string }[], note?: string, target_date?: string }, init?: RequestInit) =>
+    request<APIResponse<any>>("/progress", { method: "POST", body: JSON.stringify(data), ...init }),
 
-  logRestDay: () =>
-    request<APIResponse<any>>("/progress/rest", { method: "POST", body: JSON.stringify({}) }),
+  logRestDay: (init?: RequestInit) =>
+    request<APIResponse<any>>("/progress/rest", { method: "POST", body: JSON.stringify({}), ...init }),
 
-  logPlatformProblem: (data: { platform: string; problem_identifier: string; confidence?: number | null }) =>
-    request<APIResponse<any>>("/progress/platform", { method: "POST", body: JSON.stringify(data) }),
+  logPlatformProblem: (data: { platform: string; problem_identifier: string; confidence?: number | null }, init?: RequestInit) =>
+    request<APIResponse<any>>("/progress/platform", { method: "POST", body: JSON.stringify(data), ...init }),
 
   getExportUrl: (userId: string) => `${BASE}/users/${userId}/export`,
 
   // Revision Bank
-  getDueRevisionItems: () => request<any>("/progress/revision/due"),
-  getAllRevisionItems: (page = 1, limit = 10) =>
-    request<any>(`/progress/revision/all?page=${page}&limit=${limit}`),
-  submitRevisionReview: (data: { problem_id: number; confidence: number }) =>
-    request<APIResponse<any>>("/progress/revision/review", { method: "POST", body: JSON.stringify(data) }),
+  getDueRevisionItems: (init?: RequestInit) => request<any>("/progress/revision/due", init),
+  getAllRevisionItems: (page = 1, limit = 10, init?: RequestInit) =>
+    request<any>(`/progress/revision/all?page=${page}&limit=${limit}`, init),
+  submitRevisionReview: (data: { problem_id: number; confidence: number }, init?: RequestInit) =>
+    request<APIResponse<any>>("/progress/revision/review", { method: "POST", body: JSON.stringify(data), ...init }),
 
   // Admin Panel — protected by require_admin on the backend
-  adminUsers: () => request<APIResponse<{ users: any[]; total: number }>>("/admin/users"),
-  adminMissedToday: () => request<APIResponse<{ users: any[]; total: number }>>("/admin/missed-today"),
-  adminSudoLog: (data: { user_id: string; topic: string; count: number; difficulty: string }) =>
+  adminUsers: (init?: RequestInit) => request<APIResponse<{ users: any[]; total: number }>>("/admin/users", init),
+  adminMissedToday: (init?: RequestInit) => request<APIResponse<{ users: any[]; total: number }>>("/admin/missed-today", init),
+  adminSudoLog: (data: { user_id: string; topic: string; count: number; difficulty: string }, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/sudo-log", {
       method: "POST", body: JSON.stringify(data),
+      ...init,
     }),
-  adminSudoRestDay: (userId: string) =>
+  adminSudoRestDay: (userId: string, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/sudo-rest", {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
+      ...init,
     }),
-  adminUndo: (userId: string) =>
+  adminUndo: (userId: string, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/undo", {
       method: "POST", body: JSON.stringify({ user_id: userId }),
+      ...init,
     }),
-  adminForceSummary: (broadcastToDiscord = false) =>
+  adminForceSummary: (broadcastToDiscord = false, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string }>>("/admin/force-summary", {
       method: "POST", body: JSON.stringify({ broadcast_to_discord: broadcastToDiscord }),
+      ...init,
     }),
 };

@@ -5,6 +5,7 @@ import {
   useId,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { enterSpring } from "../styles/springs";
@@ -41,6 +42,13 @@ export interface DropdownProps<T extends string | number> {
  * Mirrors the mobile autocomplete options panel spec
  * (log_progress_sheet.dart:837-869): glass gradient + 1px specular border + blur(16)
  * + rounded-16 + soft ambient shadow, plus a heavier drop shadow for elevation.
+ *
+ * Keyboard model (ARIA listbox pattern):
+ *  - Enter / Space: toggle open
+ *  - ArrowDown / ArrowUp: move activeIndex through selectable items
+ *  - Home / End: jump to first / last
+ *  - Enter on open: select the active option
+ *  - Escape: close
  */
 export default function Dropdown<T extends string | number>({
   items,
@@ -55,21 +63,43 @@ export default function Dropdown<T extends string | number>({
   panelClassName = "",
 }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
+
+  // Selectable items only (skip dividers) for keyboard navigation.
+  const selectableItems = items.filter((it) => !it.divider && !it.disabled);
+  const activeKey = selectableItems[activeIndex]?.key;
+
   const active = items.find((i) => i.key === value);
+
+  const openDropdown = useCallback(() => {
+    setActiveIndex(0);
+    setOpen(true);
+  }, []);
+
+  const closeDropdown = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const toggle = useCallback(() => {
+    setOpen((o) => {
+      if (!o) setActiveIndex(0);
+      return !o;
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onEsc);
+    document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onEsc);
+      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
@@ -81,6 +111,56 @@ export default function Dropdown<T extends string | number>({
     [onChange]
   );
 
+  const handleListKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (!open) {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        openDropdown();
+        return;
+      }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown": {
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % Math.max(selectableItems.length, 1));
+        break;
+      }
+      case "ArrowUp": {
+        e.preventDefault();
+        setActiveIndex((i) => (i - 1 + Math.max(selectableItems.length, 1)) % Math.max(selectableItems.length, 1));
+        break;
+      }
+      case "Home": {
+        e.preventDefault();
+        setActiveIndex(0);
+        break;
+      }
+      case "End": {
+        e.preventDefault();
+        setActiveIndex(Math.max(selectableItems.length - 1, 0));
+        break;
+      }
+      case "Enter":
+      case " ": {
+        e.preventDefault();
+        if (activeKey !== undefined) select(activeKey as T);
+        break;
+      }
+      case "Escape": {
+        e.preventDefault();
+        closeDropdown();
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
+  const activedescendantId = open && activeKey !== undefined
+    ? `${id}-opt-${String(activeKey)}`
+    : undefined;
+
   return (
     <div className={`${s.field}${className ? ` ${className}` : ""}`} ref={ref}>
       {trigger === "trigger" ? (
@@ -90,8 +170,10 @@ export default function Dropdown<T extends string | number>({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-label={ariaLabel}
+          aria-activedescendant={activedescendantId}
           data-open={open}
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggle}
+          onKeyDown={handleListKeyDown}
         >
           <span className={active ? "" : s.placeholder}>
             {active ? (
@@ -112,14 +194,10 @@ export default function Dropdown<T extends string | number>({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={ariaLabel}
+          aria-activedescendant={activedescendantId}
           data-open={open}
-          onClick={() => setOpen((o) => !o)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setOpen((o) => !o);
-            }
-          }}
+          onClick={toggle}
+          onKeyDown={handleListKeyDown}
           style={{ display: "block", width: "100%" }}
         >
           {children}
@@ -139,25 +217,34 @@ export default function Dropdown<T extends string | number>({
             exit={{ opacity: 0, scale: 0.97 }}
             transition={enterSpring}
           >
-            {items.map((it) =>
-              it.divider ? (
-                <div key={String(it.key)} className={s.divider} />
-              ) : (
+            {items.map((it) => {
+              if (it.divider) {
+                return <div key={`divider-${String(it.key)}`} className={s.divider} />;
+              }
+              const isActive = open && it.key === activeKey;
+              const isSelected = it.key === value;
+              return (
                 <button
                   key={String(it.key)}
                   type="button"
+                  id={`${id}-opt-${String(it.key)}`}
                   role="option"
-                  aria-selected={it.key === value}
-                  data-active={it.key === value}
+                  aria-selected={isSelected}
+                  data-active={isActive ? "true" : "false"}
+                  data-selected={isSelected ? "true" : "false"}
                   className={`${s.item}${it.danger ? ` ${s.danger}` : ""}`}
                   disabled={it.disabled}
                   onClick={() => select(it.key)}
+                  onMouseEnter={() => {
+                    const idx = selectableItems.findIndex((s) => s.key === it.key);
+                    if (idx >= 0) setActiveIndex(idx);
+                  }}
                 >
                   {it.icon && <span className={s.iIcon}>{it.icon}</span>}
                   {it.label}
                 </button>
-              )
-            )}
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>

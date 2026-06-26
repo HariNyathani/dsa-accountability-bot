@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
-import { api } from '../services/api';
+import { useState, useCallback } from "react";
+import { api } from "../services/api";
+import { useApi } from "./useApi";
 
 export interface TopicStat {
   topic: string;
@@ -20,72 +21,58 @@ export interface RevisionItem {
   platform: string;
 }
 
+interface PagedHistory {
+  items: RevisionItem[];
+  total_count: number;
+  topic_stats?: TopicStat[];
+}
+
 export function useRevisionBank() {
-  const [dueItems, setDueItems] = useState<RevisionItem[]>([]);
-  const [allRevisionItems, setAllRevisionItems] = useState<RevisionItem[]>([]);
-  const [topicStats, setTopicStats] = useState<TopicStat[]>([]);
-  const [totalCount, setTotalCount] = useState<number>(0);
-  
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const limit = 10;
 
-  const fetchDueItems = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getDueRevisionItems();
-      if (res) {
-        setDueItems(res || []);
+  const due = useApi(
+    (signal) => api.getDueRevisionItems({ signal }),
+    []
+  );
+  const history = useApi(
+    (signal) => api.getAllRevisionItems(page, limit, { signal }),
+    [page]
+  );
+  const [submitting, setSubmitting] = useState(false);
+
+  const refetch = useCallback(() => {
+    due.refetch();
+    history.refetch();
+  }, [due, history]);
+
+  const submitReview = useCallback(
+    async (problemId: number, confidence: number) => {
+      setSubmitting(true);
+      try {
+        await api.submitRevisionReview({ problem_id: problemId, confidence });
+        due.refetch();
+      } finally {
+        setSubmitting(false);
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch due items.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [due]
+  );
 
-  const fetchPagedHistory = useCallback(async (page: number, limit: number = 10) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getAllRevisionItems(page, limit);
-      if (res) {
-        setAllRevisionItems(res.items || []);
-        setTotalCount(res.total_count || 0);
-        if (res.topic_stats) {
-          setTopicStats(res.topic_stats);
-        }
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch revision history.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const submitReview = useCallback(async (problemId: number, confidence: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      await api.submitRevisionReview({ problem_id: problemId, confidence });
-      // After submission, re-fetch due items to refresh the list
-      await fetchDueItems();
-    } catch (err: any) {
-      setError(err.message || "Failed to submit review.");
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchDueItems]);
+  const dueData = (due.data as RevisionItem[] | null) ?? null;
+  const historyData = (history.data as PagedHistory | null) ?? null;
 
   return {
-    dueItems,
-    allRevisionItems,
-    topicStats,
-    totalCount,
-    loading,
-    error,
-    fetchDueItems,
-    fetchPagedHistory,
-    submitReview
+    dueItems: dueData ?? [],
+    allRevisionItems: historyData?.items ?? [],
+    topicStats: historyData?.topic_stats ?? [],
+    totalCount: historyData?.total_count ?? 0,
+    page,
+    setPage,
+    limit,
+    loading: due.loading || history.loading || submitting,
+    error: due.error ?? history.error,
+    refetch,
+    submitReview,
   };
 }

@@ -16,9 +16,13 @@ interface UseApiState<T> {
  * `deps` should contain every value the `fetcher` closure captures that can
  * change (e.g. `[uid]`, `[period]`). Typed as React's `DependencyList` so
  * TypeScript rejects accidental `unknown` values at call sites.
+ *
+ * The fetcher receives an optional `AbortSignal`. On dep change or unmount,
+ * the in-flight request is aborted via `AbortController` so the browser stops
+ * the network round-trip instead of just discarding the response.
  */
 export function useApi<T>(
-  fetcher: () => Promise<{ data: T }>,
+  fetcher: (signal?: AbortSignal) => Promise<{ data: T }>,
   deps: DependencyList = [],
   enabled = true,
 ): UseApiState<T> {
@@ -43,22 +47,30 @@ export function useApi<T>(
       return;
     }
 
+    const ctl = new AbortController();
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    fetcherRef.current()
+    fetcherRef.current(ctl.signal)
       .then((res) => {
         if (!cancelled) setData(res.data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message ?? "Request failed");
+        if (cancelled) return;
+        if (err?.name === "AbortError") return;
+        // Friendly message for network failures (offline, CORS, server down).
+        if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
+          setError("Couldn't reach the server. Check your connection and retry.");
+        } else {
+          setError(err?.message ?? "Request failed");
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; ctl.abort(); };
   }, [tick, enabled, ...deps]); // fetcherRef is a stable ref, no eslint-disable needed
 
   return { data, loading, error, refetch };

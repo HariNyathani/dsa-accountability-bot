@@ -90,30 +90,30 @@ export default function RevisionBankPage() {
     allRevisionItems,
     topicStats,
     totalCount,
+    page,
+    setPage,
+    limit,
     loading,
     error,
-    fetchDueItems,
-    fetchPagedHistory,
+    refetch,
     submitReview,
   } = useRevisionBank();
-  const [page, setPage] = useState(1);
-  const limit = 10;
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
+  // Reset to page 1 when switching to the "progress" tab so the aggregate
+  // stats (totalCount, topicStats) are always from page 1.
   useEffect(() => {
-    if (currentTab === "today") fetchDueItems();
-    else if (currentTab === "progress") fetchPagedHistory(1, limit);
-    else if (currentTab === "all") fetchPagedHistory(page, limit);
-  }, [currentTab, page, fetchDueItems, fetchPagedHistory]);
+    if (currentTab === "progress") setPage(1);
+  }, [currentTab, setPage]);
 
   const handleCloseModal = useCallback(() => setSelectedProblem(null), []);
 
   const handleReview = async (problemId: number, confidence: number) => {
     await submitReview(problemId, confidence);
     setSelectedProblem(null);
-    // submitReview already re-fetches due items internally;
-    // only fetch paged history here to refresh the Progress tab.
-    fetchPagedHistory(1, limit);
+    // Refresh both lists: submitReview already re-fetches due items;
+    // refetch() also refreshes the paged history.
+    refetch();
   };
 
   const totalReviews = allRevisionItems.filter((i) => i.last_reviewed_at !== null).length;

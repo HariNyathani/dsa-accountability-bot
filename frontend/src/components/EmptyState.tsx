@@ -7,10 +7,11 @@ interface Props {
   message: string;
 }
 
-export function EmptyState({ icon = "📭", title, message }: Props) {
+export function EmptyState({ icon, title, message }: Props) {
+  const displayIcon = icon ?? "📭";
   return (
     <div className={s.state}>
-      <div className={s.icon}>{icon}</div>
+      <div className={s.icon}>{displayIcon}</div>
       <h3 className={s.title}>{title}</h3>
       <p className={s.msg}>{message}</p>
     </div>
