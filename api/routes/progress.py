@@ -295,18 +295,30 @@ async def log_platform_problem(
     response_model=List[RevisionDueItem],
     summary="Get due revision items",
     description=(
-        "Return all LeetCode problems in the authenticated user's revision bank "
-        "whose next_review_at timestamp is <= NOW(), ordered by most overdue first."
+        "Return LeetCode problems in the authenticated user's revision bank "
+        "that are ready for review, ordered by most overdue first. "
+        "Use ``filter_mode=today`` to restrict to items due exactly today "
+        "(powers the dashboard's 'Due Today' card); the default ``filter_mode=all`` "
+        "returns every item whose next_review_at is on or before today."
     ),
 )
-async def get_due_revision_items(user_id: int = Depends(require_auth)):
+async def get_due_revision_items(
+    filter_mode: str = Query(
+        "all",
+        description=(
+            "'all' → every item due on or before today (today + overdue). "
+            "'today' → only items whose next_review_at is exactly today."
+        ),
+    ),
+    user_id: int = Depends(require_auth),
+):
     """
     Fetch the authenticated user's SRS queue — problems that are ready for review.
     Joins revision_bank with leetcode_problems for rich metadata.
     """
     try:
         from db import database
-        items = await database.get_due_revision_items(user_id)
+        items = await database.get_due_revision_items(user_id, filter_mode=filter_mode)
         return items
     except HTTPException:
         raise
@@ -320,26 +332,38 @@ async def get_due_revision_items(user_id: int = Depends(require_auth)):
     response_model=RevisionBankPage,
     summary="Get all revision bank items (paginated) with topic confidence stats",
     description=(
-        "Returns the complete revision bank for the authenticated user — "
-        "all rows regardless of next_review_at — with server-side pagination. "
+        "Returns the user's revision bank (paginated) with optional filtering. "
+        "``filter_mode=all`` returns every row, ordered by LeetCode question_id ASC. "
+        "``filter_mode=overdue`` restricts to rows whose next_review_at is strictly "
+        "before today, ordered by next_review_at ASC (most overdue first). "
         "Also returns topic_stats: per-topic average confidence sorted ascending "
-        "(index 0 = weakest pattern). Use this endpoint to power the 'All Problems' "
-        "and 'Weakest Patterns' views in the mobile dashboard."
+        "(index 0 = weakest pattern). Use this endpoint to power the 'All Problems', "
+        "'Overdue', and 'Weakest Patterns' views in the mobile dashboard."
     ),
 )
 async def get_all_revision_items(
     page: int = Query(1, ge=1, description="1-based page index"),
     limit: int = Query(10, ge=1, le=100, description="Max items per page"),
+    filter_mode: str = Query(
+        "all",
+        description=(
+            "'all' → every revision-bank row, ordered by LeetCode question_id ASC. "
+            "'overdue' → only items with next_review_at strictly before today, "
+            "ordered most-overdue first."
+        ),
+    ),
     user_id: int = Depends(require_auth),
 ):
     """
-    Fetch the user's complete revision bank (paginated) alongside topic-level
+    Fetch the user's revision bank (paginated) alongside topic-level
     confidence aggregates.  Two DB calls are made sequentially (consistent
     with the existing codebase pattern that uses asyncio.to_thread + pool).
     """
     try:
         from db import database
-        page_data  = await database.get_all_revision_items(user_id, page, limit)
+        page_data  = await database.get_all_revision_items(
+            user_id, page, limit, filter_mode=filter_mode,
+        )
         topic_data = await database.get_revision_topic_confidence(user_id)
         return RevisionBankPage(
             items        = [RevisionBankItem(**item) for item in page_data["items"]],

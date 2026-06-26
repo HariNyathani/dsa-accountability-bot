@@ -44,56 +44,113 @@ class ProgressProvider extends ChangeNotifier {
   UserDifficulty? _difficulty;
   UserDifficulty? get difficulty => _difficulty;
 
-  /// SRS revision-bank items that are currently due for review.
-  /// Empty list means either no items are due or the fetch hasn't completed.
+  /// SRS revision-bank items that are due **today only** (days_remaining = 0).
+  ///
+  /// Populated by [_fetchDueReviews] which calls
+  /// ``GET /progress/revision/due?filter_mode=today``.  Overdue items
+  /// (days_remaining < 0) are intentionally **not** included here — they
+  /// surface on the Revision tab's "Overdue" paginated view instead.
+  ///
+  /// Empty list means either no items are due today or the fetch hasn't
+  /// completed.
   List<RevisionDueItem> _dueReviews = [];
   List<RevisionDueItem> get dueReviews => List.unmodifiable(_dueReviews);
 
   // ---------------------------------------------------------------------------
-  // All Revision Items (full bank, paginated) — lazy loaded by RevisionTab
+  // Revision Bank — paginated views, two filter modes
   // ---------------------------------------------------------------------------
+  //
+  // The paginated "All Problems" and "Overdue" views share the provider but
+  // keep their page caches isolated so swapping between them never trashes
+  // an already-loaded page.  An "active" filter mode ([_currentFilterMode])
+  // determines which cache the public getters ([allRevisionItems],
+  // [totalRevisionCount], [isLoadingRevision]) read from.
 
-  /// In-memory page cache: `page number (1-based) → items`.
-  /// Populated on first access, served instantly on subsequent visits.
-  /// Invalidated by [invalidateRevisionCache] after data mutations.
-  final Map<int, List<RevisionBankItem>> _revisionPageCache = {};
+  /// Active filter mode for the paginated revision view.
+  /// ``"all"``     → entire revision bank, ordered by LeetCode question_id.
+  /// ``"overdue"`` → only items with ``next_review_at`` strictly before today,
+  ///                  ordered most-overdue first.
+  String _currentFilterMode = 'all';
+  String get currentFilterMode => _currentFilterMode;
 
-  /// The page number currently being presented to the UI.
+  /// Updates the active filter mode. Subsequent reads of [allRevisionItems],
+  /// [totalRevisionCount], and [isLoadingRevision] reflect the new mode.
+  /// Does **not** trigger a fetch — callers should follow up with
+  /// [fetchAllRevisionItems] if the new mode's cache is cold.
+  void setFilterMode(String mode) {
+    if (mode != 'all' && mode != 'overdue') return;
+    if (mode == _currentFilterMode) return;
+    _currentFilterMode = mode;
+    if (!_disposed) notifyListeners();
+  }
+
+  /// 1-based page index currently visible to the UI.
   int _currentRevisionPage = 1;
 
-  /// Tracks which pages have a silent pre-fetch already in flight
-  /// to avoid duplicate network requests.
-  final Set<int> _prefetchingPages = {};
+  /// Per-mode page caches: `page number (1-based) → items`.
+  /// Populated on first access, served instantly on subsequent visits.
+  /// Invalidated by [invalidateRevisionCache] after data mutations.
+  final Map<int, List<RevisionBankItem>> _revisionPageCacheAll = {};
+  final Map<int, List<RevisionBankItem>> _revisionPageCacheOverdue = {};
 
-  /// Public getter — returns the cached items for the current page,
-  /// or an empty list if the page hasn't been fetched yet.
+  /// Tracks which pages have a silent pre-fetch already in flight, per mode.
+  final Set<int> _prefetchingPagesAll = {};
+  final Set<int> _prefetchingPagesOverdue = {};
+
+  /// Total pre-pagination counts, per mode.
+  int _totalRevisionCountAll = 0;
+  int _totalRevisionCountOverdue = 0;
+
+  /// Per-mode loading flags for *visible* fetches (cache misses).
+  /// Silent pre-fetches never set these to `true`.
+  bool _isLoadingRevisionAll = false;
+  bool _isLoadingRevisionOverdue = false;
+
+  /// Returns the active page cache for [_currentFilterMode].
+  Map<int, List<RevisionBankItem>> get _activePageCache =>
+      _currentFilterMode == 'overdue'
+          ? _revisionPageCacheOverdue
+          : _revisionPageCacheAll;
+
+  /// Cached items for [_currentRevisionPage] in the active mode.
+  /// Returns an empty list if the page hasn't been fetched yet.
   List<RevisionBankItem> get allRevisionItems =>
-      List.unmodifiable(_revisionPageCache[_currentRevisionPage] ?? const []);
+      List.unmodifiable(_activePageCache[_currentRevisionPage] ?? const []);
 
-  /// Total count of items in the revision bank (pre-pagination).
-  int _totalRevisionCount = 0;
-  int get totalRevisionCount => _totalRevisionCount;
+  /// Total pre-pagination count in the active mode.
+  int get totalRevisionCount => _currentFilterMode == 'overdue'
+      ? _totalRevisionCountOverdue
+      : _totalRevisionCountAll;
+
+  /// Total pre-pagination count in the "all" mode (mode-independent).
+  int get totalRevisionCountAll => _totalRevisionCountAll;
+
+  /// Total pre-pagination count in the "overdue" mode (mode-independent).
+  /// The Revision tab's "Overdue" stat card reads from here so the count is
+  /// visible even before the user opens the paginated overdue view.
+  int get totalRevisionCountOverdue => _totalRevisionCountOverdue;
+
+  /// True while [fetchAllRevisionItems] is doing a *visible* network fetch
+  /// in the active mode (i.e. a cache miss). Silent pre-fetches never set
+  /// this to `true`.
+  bool get isLoadingRevision => _currentFilterMode == 'overdue'
+      ? _isLoadingRevisionOverdue
+      : _isLoadingRevisionAll;
 
   /// Per-topic SRS confidence aggregates, sorted weakest-first (ASC).
+  /// Shared between both filter modes (topic topology is independent of
+  /// the "all vs overdue" filter), so a single field suffices.
   /// Populated alongside the revision items by [fetchAllRevisionItems].
   List<RevisionTopicStat> _revisionTopicStats = [];
   List<RevisionTopicStat> get revisionTopicStats =>
       List.unmodifiable(_revisionTopicStats);
 
-  /// True while [fetchAllRevisionItems] is doing a *visible* network fetch
-  /// (i.e. a cache miss). Silent pre-fetches never set this to `true`.
-  bool _isLoadingRevision = false;
-  bool get isLoadingRevision => _isLoadingRevision;
-
   bool get hasData => _stats != null;
 
   // ---------------------------------------------------------------------------
-  // Fetch all dashboard data in parallel
+  // Lifecycle
   // ---------------------------------------------------------------------------
 
-  /// Fetches stats, heatmap, recent activity, and due revision items
-  /// concurrently.  Any individual sub-request failure is caught independently
-  /// so partial data can still render.
   @override
   void dispose() {
     _disposed = true;
@@ -101,8 +158,32 @@ class ProgressProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // Lazy fetch — Revision Tab only
+  // Paginated revision fetch
   // ---------------------------------------------------------------------------
+
+  /// Fetches a single page of the revision bank from the backend.
+  /// Pure network call — no state mutation, no notifyListeners.
+  ///
+  /// [filterMode] selects which slice of the bank to load:
+  /// - ``"all"`` (default) — entire bank, ordered by LeetCode question_id.
+  /// - ``"overdue"``        — strictly overdue items, most-overdue first.
+  Future<RevisionBankPage?> _fetchRevisionPage({
+    required int page,
+    required int limit,
+    String filterMode = 'all',
+  }) async {
+    final res = await apiClient.dio.get(
+      '/progress/revision/all',
+      queryParameters: {
+        'page': page,
+        'limit': limit,
+        'filter_mode': filterMode,
+      },
+    );
+    return RevisionBankPage.fromJson(
+      res.data as Map<String, dynamic>,
+    );
+  }
 
   /// Fetches the complete revision bank (paginated) and topic-confidence
   /// aggregates from `GET /progress/revision/all`.
@@ -111,108 +192,158 @@ class ProgressProvider extends ChangeNotifier {
   /// so the main dashboard startup path is not affected.
   ///
   /// ### Page cache (June 2026)
-  /// Previously, every page change hit the network and showed a skeleton.
-  /// Now, fetched pages are cached in [_revisionPageCache]. On a cache hit
-  /// the items are emitted **instantly** with no loading state. On a cache
-  /// miss the skeleton is shown, the page is fetched, cached, and emitted.
-  /// After every successful load, [_silentPrefetch] fires for `page + 1`
-  /// so the next page is ready before the user taps "Next".
+  /// Fetched pages are cached **per filter mode** in
+  /// [_revisionPageCacheAll] and [_revisionPageCacheOverdue]. On a cache
+  /// hit the items are emitted **instantly** with no loading state. On a
+  /// cache miss the skeleton is shown, the page is fetched, cached, and
+  /// emitted. After every successful load, [_silentPrefetch] fires for
+  /// `page + 1` so the next page is ready before the user taps "Next".
   ///
   /// [page] is 1-based. [limit] caps at 100 (enforced server-side).
-  /// Topic stats are refreshed on every call so they stay current after a
-  /// review submission changes the underlying confidence scores.
-  Future<void> fetchAllRevisionItems({int page = 1, int limit = 10}) async {
+  /// [filterMode] is ``"all"`` or ``"overdue"`` and determines which cache
+  /// is read/written. Topic stats are refreshed on every call so they stay
+  /// current after a review submission changes the underlying confidence
+  /// scores.
+  Future<void> fetchAllRevisionItems({
+    int page = 1,
+    int limit = 10,
+    String filterMode = 'all',
+  }) async {
+    _currentFilterMode = filterMode;
     _currentRevisionPage = page;
 
+    final cache = filterMode == 'overdue'
+        ? _revisionPageCacheOverdue
+        : _revisionPageCacheAll;
+
     // ── Cache hit: emit instantly, no loading skeleton ──────────────────
-    if (_revisionPageCache.containsKey(page)) {
+    if (cache.containsKey(page)) {
       // Topic stats & total count are already set from the original fetch.
       // Just notify so the Selector picks up the (potentially new) page.
       if (!_disposed) notifyListeners();
 
       // Still silently prefetch the next page if it isn't cached yet.
-      _silentPrefetch(page: page + 1, limit: limit);
+      _silentPrefetch(page: page + 1, limit: limit, filterMode: filterMode);
       return;
     }
 
     // ── Cache miss: show skeleton, fetch from network ───────────────────
-    _isLoadingRevision = true;
+    if (filterMode == 'overdue') {
+      _isLoadingRevisionOverdue = true;
+    } else {
+      _isLoadingRevisionAll = true;
+    }
     if (!_disposed) notifyListeners();
 
     try {
-      final pageData = await _fetchRevisionPage(page: page, limit: limit);
+      final pageData = await _fetchRevisionPage(
+        page: page,
+        limit: limit,
+        filterMode: filterMode,
+      );
       if (pageData != null) {
-        _revisionPageCache[page] = pageData.items;
-        _totalRevisionCount      = pageData.totalCount;
-        _revisionTopicStats      = pageData.topicStats;
+        cache[page] = pageData.items;
+        if (filterMode == 'overdue') {
+          _totalRevisionCountOverdue = pageData.totalCount;
+        } else {
+          _totalRevisionCountAll = pageData.totalCount;
+        }
+        _revisionTopicStats = pageData.topicStats;
       }
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
       _error = 'Could not load revision bank. Pull to retry.';
     } finally {
-      _isLoadingRevision = false;
+      if (filterMode == 'overdue') {
+        _isLoadingRevisionOverdue = false;
+      } else {
+        _isLoadingRevisionAll = false;
+      }
       if (!_disposed) notifyListeners();
     }
 
     // ── Silent prefetch: buffer the next page in the background ─────────
-    _silentPrefetch(page: page + 1, limit: limit);
+    _silentPrefetch(page: page + 1, limit: limit, filterMode: filterMode);
   }
 
-  /// Drops the entire page cache so the next [fetchAllRevisionItems] call
-  /// hits the network. Called after data mutations (log, review, refresh)
-  /// to keep cached pages consistent with the backend.
-  void invalidateRevisionCache() {
-    _revisionPageCache.clear();
-    _prefetchingPages.clear();
-  }
-
-  /// Fetches a single revision page from the backend.
-  /// Pure network call — no state mutation, no notifyListeners.
-  Future<RevisionBankPage?> _fetchRevisionPage({
+  /// Silently fetches [page] in the background and stores it in the cache
+  /// for [filterMode]. Does NOT set the visible loading flag or call
+  /// [notifyListeners] — the UI remains completely unaware until the user
+  /// actually navigates to that page and [fetchAllRevisionItems] finds the
+  /// cache hit.
+  void _silentPrefetch({
     required int page,
     required int limit,
-  }) async {
-    final res = await apiClient.dio.get(
-      '/progress/revision/all',
-      queryParameters: {'page': page, 'limit': limit},
-    );
-    return RevisionBankPage.fromJson(
-      res.data as Map<String, dynamic>,
-    );
-  }
+    required String filterMode,
+  }) {
+    final cache = filterMode == 'overdue'
+        ? _revisionPageCacheOverdue
+        : _revisionPageCacheAll;
+    final prefetching = filterMode == 'overdue'
+        ? _prefetchingPagesOverdue
+        : _prefetchingPagesAll;
+    final totalCount = filterMode == 'overdue'
+        ? _totalRevisionCountOverdue
+        : _totalRevisionCountAll;
 
-  /// Silently fetches [page] in the background and stores it in the cache.
-  /// Does NOT set [_isLoadingRevision] or call [notifyListeners] — the UI
-  /// remains completely unaware until the user actually navigates to that
-  /// page and [fetchAllRevisionItems] finds the cache hit.
-  void _silentPrefetch({required int page, required int limit}) {
     // Don't prefetch if already cached, already in-flight, or past the end.
-    if (_revisionPageCache.containsKey(page)) return;
-    if (_prefetchingPages.contains(page)) return;
-    if (_totalRevisionCount > 0) {
-      final lastPage = (_totalRevisionCount / limit).ceil();
+    if (cache.containsKey(page)) return;
+    if (prefetching.contains(page)) return;
+    if (totalCount > 0) {
+      final lastPage = (totalCount / limit).ceil();
       if (page > lastPage) return;
     }
 
-    _prefetchingPages.add(page);
+    prefetching.add(page);
 
     // Fire-and-forget — errors are silently swallowed since this is
     // speculative buffering; the user hasn't asked for this page yet.
-    _fetchRevisionPage(page: page, limit: limit).then((pageData) {
+    _fetchRevisionPage(
+      page: page,
+      limit: limit,
+      filterMode: filterMode,
+    ).then((pageData) {
       if (pageData != null && !_disposed) {
-        _revisionPageCache[page] = pageData.items;
+        cache[page] = pageData.items;
         // Also keep totalCount / topicStats fresh from the latest response.
-        _totalRevisionCount = pageData.totalCount;
+        if (filterMode == 'overdue') {
+          _totalRevisionCountOverdue = pageData.totalCount;
+        } else {
+          _totalRevisionCountAll = pageData.totalCount;
+        }
         _revisionTopicStats = pageData.topicStats;
       }
     }).catchError((_) {
       // Silently ignore — prefetch is best-effort.
     }).whenComplete(() {
-      _prefetchingPages.remove(page);
+      prefetching.remove(page);
     });
   }
 
+  /// Drops every page cache (both filter modes) so the next
+  /// [fetchAllRevisionItems] call hits the network. Called after data
+  /// mutations (log, review, refresh) to keep cached pages consistent with
+  /// the backend.
+  void invalidateRevisionCache() {
+    _revisionPageCacheAll.clear();
+    _revisionPageCacheOverdue.clear();
+    _prefetchingPagesAll.clear();
+    _prefetchingPagesOverdue.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fetch all dashboard data in parallel
+  // ---------------------------------------------------------------------------
+
+  /// Fetches stats, heatmap, recent activity, and due-today revision items
+  /// concurrently, then eagerly pre-warms both paginated revision caches
+  /// (page 1 of "all" and "overdue") so the Revision tab can show its
+  /// "Overdue" stat and open either paginated view without a loading
+  /// skeleton.
+  ///
+  /// Any individual sub-request failure is caught independently so partial
+  /// data can still render.
   Future<void> fetchAll() async {
     _isLoading = true;
     _error = null;
@@ -243,9 +374,14 @@ class ProgressProvider extends ChangeNotifier {
       _dueReviews = (results[4] as List<RevisionDueItem>?) ?? [];
 
       // Invalidate revision bank cache so stale pages aren't served after
-      // a data mutation, then re-fetch page 1 eagerly.
+      // a data mutation, then re-fetch page 1 of BOTH modes eagerly so the
+      // Revision tab's "Overdue" count and "All Problems" view are warm
+      // before the user even opens them.
       invalidateRevisionCache();
-      await fetchAllRevisionItems(page: 1, limit: 10);
+      await Future.wait([
+        fetchAllRevisionItems(page: 1, limit: 10, filterMode: 'all'),
+        fetchAllRevisionItems(page: 1, limit: 10, filterMode: 'overdue'),
+      ]);
     } on DioException catch (e) {
       _error = _humanError(e);
     } catch (e) {
@@ -307,14 +443,22 @@ class ProgressProvider extends ChangeNotifier {
     }
   }
 
-  /// Fetches the authenticated user's SRS revision queue.
+  /// Fetches the authenticated user's "due today" SRS queue.
+  ///
+  /// Hits ``GET /progress/revision/due?filter_mode=today`` so [_dueReviews]
+  /// contains only items whose ``next_review_at::date`` is exactly today
+  /// (i.e. ``days_remaining = 0``). Overdue items (days_remaining < 0) are
+  /// **excluded** here — they live on the Revision tab's "Overdue" view.
   ///
   /// The backend returns a plain JSON array (not wrapped in `data`).
   /// On failure, returns an empty list so the rest of the dashboard
   /// renders normally.
   Future<List<RevisionDueItem>?> _fetchDueReviews() async {
     try {
-      final res = await apiClient.dio.get('/progress/revision/due');
+      final res = await apiClient.dio.get(
+        '/progress/revision/due',
+        queryParameters: {'filter_mode': 'today'},
+      );
       final list = res.data as List<dynamic>?;
       return list
           ?.map((e) => RevisionDueItem.fromJson(e as Map<String, dynamic>))
@@ -392,8 +536,18 @@ class ProgressProvider extends ChangeNotifier {
 
   /// Submit a spaced-repetition review (`POST /progress/revision/review`).
   ///
-  /// On success, the problem is **optimistically removed** from [dueReviews]
-  /// without forcing a full network refresh — keeps the UI snappy.
+  /// On success, the problem is **optimistically removed** from
+  /// [_dueReviews] (the due-today queue) without forcing a full network
+  /// refresh — keeps the UI snappy.  The two paginated caches are also
+  /// patched in place:
+  ///
+  /// - "All" cache: the item stays (it remains in the revision bank) but
+  ///   its `confidenceLast`, `lastReviewedAt`, and `reviewCount` are
+  ///   updated.  `nextReviewAt` and `daysRemaining` stay as their old
+  ///   (stale) values until the next fetch — the existing behaviour.
+  /// - "Overdue" cache: the item is **removed** (it is no longer overdue)
+  ///   and [_totalRevisionCountOverdue] is decremented.
+  ///
   /// On failure, the item is NOT removed and a [SnackBar] is shown via
   /// [scaffoldMessengerKey] so the user can retry.
   ///
@@ -412,15 +566,16 @@ class ProgressProvider extends ChangeNotifier {
         },
       );
 
-      // Optimistic local update — remove the reviewed item from the queue.
+      // Optimistic local update — remove the reviewed item from the
+      // due-today queue (it just got rescheduled to a future date).
       _dueReviews = _dueReviews
           .where((item) => item.problemId != problemId)
           .toList();
 
-      // Optimistic local update for the full revision bank cache.
-      // This avoids dropping prefetched pages and prevents a loading skeleton.
-      for (final page in _revisionPageCache.keys) {
-        final items = _revisionPageCache[page]!;
+      // Optimistic local update for the "all" cache — bump confidence,
+      // lastReviewedAt, reviewCount in place.  Stays in the bank.
+      for (final page in _revisionPageCacheAll.keys) {
+        final items = _revisionPageCacheAll[page]!;
         final index = items.indexWhere((item) => item.problemId == problemId);
         if (index != -1) {
           final oldItem = items[index];
@@ -441,6 +596,23 @@ class ProgressProvider extends ChangeNotifier {
           break;
         }
       }
+
+      // Optimistic local update for the "overdue" cache — remove the item
+      // (a successful review reschedules it to a future date so it is no
+      // longer overdue) and decrement the total.
+      for (final page in _revisionPageCacheOverdue.keys) {
+        final items = _revisionPageCacheOverdue[page]!;
+        final index = items.indexWhere((item) => item.problemId == problemId);
+        if (index != -1) {
+          items.removeAt(index);
+          if (_totalRevisionCountOverdue > 0) {
+            _totalRevisionCountOverdue -= 1;
+          }
+          // Only need to remove it once.
+          break;
+        }
+      }
+
       if (!_disposed) notifyListeners();
       return true;
     } on DioException catch (e) {
@@ -489,6 +661,3 @@ class ProgressProvider extends ChangeNotifier {
     return 'Something went wrong. Pull to retry.';
   }
 }
-
-
-

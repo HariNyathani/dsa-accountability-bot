@@ -7,6 +7,7 @@ import '../../../../../core/widgets/skeleton_card.dart';
 import '../../../data/models/user_stats.dart';
 import '../../providers/progress_provider.dart';
 import '../../widgets/all_problems_view.dart';
+import '../../widgets/overdue_problems_view.dart';
 
 /// Revision Bank tab — the user's spaced-repetition hub.
 ///
@@ -32,15 +33,29 @@ class _RevisionTabState extends State<RevisionTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
       final provider = context.read<ProgressProvider>();
+      // Warm both paginated caches so the OVERDUE count and All Problems
+      // view are ready when the user first lands on this tab.  The
+      // dashboard's fetchAll() also pre-warms these, but a user could
+      // open this tab before fetchAll() finishes (e.g. when the initial
+      // dashboard fetch failed) so we trigger an explicit warm here too.
       if (provider.allRevisionItems.isEmpty && !provider.isLoadingRevision) {
         provider.fetchAllRevisionItems();
+      }
+      if (provider.totalRevisionCountOverdue == 0 &&
+          !provider.isLoadingRevision) {
+        provider.fetchAllRevisionItems(filterMode: 'overdue');
       }
     });
   }
 
   Future<void> _refresh() async {
     if (!context.mounted) return;
-    await context.read<ProgressProvider>().fetchAllRevisionItems();
+    final provider = context.read<ProgressProvider>();
+    // Pull-to-refresh re-warms BOTH paginated caches in parallel.
+    await Future.wait([
+      provider.fetchAllRevisionItems(filterMode: 'all'),
+      provider.fetchAllRevisionItems(filterMode: 'overdue'),
+    ]);
   }
 
   @override
@@ -79,6 +94,12 @@ class _RevisionTabState extends State<RevisionTab> {
                   // ── All Problems link ─────────────────────────────────────
                   RepaintBoundary(
                     child: _buildAllProblemsLink(context, provider, theme, colorScheme, isDark),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Overdue Problems link ─────────────────────────────────
+                  RepaintBoundary(
+                    child: _buildOverdueProblemsLink(context, provider, theme, colorScheme, isDark),
                   ),
 
                   // Nav bar clearance
@@ -129,8 +150,11 @@ class _RevisionTabState extends State<RevisionTab> {
     ColorScheme colorScheme,
     bool isDark,
   ) {
-    final total   = provider.totalRevisionCount;
-    final due     = provider.dueReviews.length;
+    final total   = provider.totalRevisionCountAll;
+    // Overdue count comes from the dedicated "overdue" cache, populated
+    // eagerly during the dashboard's fetchAll() so the count is visible
+    // before the user opens the paginated view.
+    final overdue = provider.totalRevisionCountOverdue;
 
     // P4: aggregation moved to a model extension so this method
     // doesn't allocate a fold closure on every rebuild.
@@ -168,16 +192,46 @@ class _RevisionTabState extends State<RevisionTab> {
         const SizedBox(width: 10),
         Expanded(
           child: _MetricCard(
-            icon: Icons.notifications_active_outlined,
-            label: 'DUE TODAY',
-            value: due.toString(),
+            icon: Icons.warning_amber_rounded,
+            label: 'OVERDUE',
+            value: overdue.toString(),
             isLoading: loading,
-            accentColor: const Color(0xFFF59E0B),
+            accentColor: const Color(0xFFE53935),
             theme: theme,
             isDark: isDark,
           ),
         ),
       ],
+    );
+  }
+
+  /// Pushes the full-screen paginated [OverdueProblemsView] on top of the
+  /// current route.  Reuses the same provider instance (via
+  /// [ChangeNotifierProvider.value]) so the view shares the same paginated
+  /// "overdue" cache that the metric count comes from.
+  void _navigateToOverdue(ProgressProvider provider) {
+    if (!mounted) return;
+    HapticService.lightTap();
+
+    Navigator.push(
+      context,
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) =>
+            ChangeNotifierProvider<ProgressProvider>.value(
+          value: provider,
+          child: const OverdueProblemsView(),
+        ),
+        transitionsBuilder: (_, animation, _, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutQuint,
+            ),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
     );
   }
 
@@ -399,6 +453,94 @@ class _RevisionTabState extends State<RevisionTab> {
     );
   }
 
+  // ── Overdue Problems link ──────────────────────────────────────────────────
+
+  Widget _buildOverdueProblemsLink(
+    BuildContext context,
+    ProgressProvider provider,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    bool isDark,
+  ) {
+    return _ScalePressable(
+      onTap: () {
+        if (!context.mounted) return;
+        HapticService.lightTap();
+
+        final progressProvider = context.read<ProgressProvider>();
+
+        Navigator.push(
+          context,
+          PageRouteBuilder<void>(
+            pageBuilder: (_, _, _) => ChangeNotifierProvider<ProgressProvider>.value(
+              value: progressProvider,
+              child: const OverdueProblemsView(),
+            ),
+            transitionsBuilder: (_, animation, _, child) {
+              return FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutQuint,
+                ),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      },
+      child: GlassCard(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE53935).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFE53935),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Overdue Problems',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      provider.totalRevisionCountOverdue > 0
+                          ? '${provider.totalRevisionCountOverdue} problems overdue'
+                          : 'No overdue problems',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colorScheme.onSurfaceVariant,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── All Patterns Bottom Sheet ────────────────────────────────────────────────
 
   void _showAllPatternsSheet(
@@ -532,6 +674,7 @@ class _MetricCard extends StatelessWidget {
     required this.accentColor,
     required this.theme,
     required this.isDark,
+    this.onTap,
   });
 
   final IconData icon;
@@ -542,21 +685,40 @@ class _MetricCard extends StatelessWidget {
   final ThemeData theme;
   final bool isDark;
 
+  /// Optional tap callback. When non-null the card is interactive and
+  /// shows a subtle scale-press animation; when null the card is a
+  /// static display tile.
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
+    final card = GlassCard(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: accentColor, size: 16),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: accentColor, size: 16),
+                ),
+                // Tiny chevron on the right of the icon when tappable so
+                // users get a subtle affordance hint.
+                if (onTap != null) ...[
+                  const Spacer(),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 14,
+                    color: accentColor.withValues(alpha: 0.55),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 10),
             isLoading
@@ -584,6 +746,9 @@ class _MetricCard extends StatelessWidget {
         ),
       ),
     );
+
+    if (onTap == null) return card;
+    return _ScalePressable(onTap: onTap!, child: card);
   }
 }
 

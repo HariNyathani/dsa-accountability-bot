@@ -153,7 +153,7 @@ class AnalyticsTab extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Card(
+                        child: GlassCard(
                           child: Padding(
                             padding: const EdgeInsets.all(20),
                             child: Column(
@@ -187,7 +187,7 @@ class AnalyticsTab extends StatelessWidget {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Card(
+                        child: GlassCard(
                           child: Padding(
                             padding: const EdgeInsets.all(20),
                             child: Column(

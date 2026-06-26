@@ -1039,17 +1039,38 @@ async def upsert_revision_bank(
     return await _run_sync(_sync)
 
 
-async def get_due_revision_items(user_id: int) -> List[dict]:
+async def get_due_revision_items(
+    user_id: int,
+    filter_mode: str = "all",
+) -> List[dict]:
     """
-    Return all revision-bank items that are due (next_review_at <= NOW())
-    for the given user, joined with leetcode_problems for title/difficulty/topics.
+    Return revision-bank items that are due for the given user, joined with
+    leetcode_problems for title/difficulty/topics.
+
+    Parameters
+    ----------
+    user_id : int
+        The user whose revision queue we are fetching.
+    filter_mode : str
+        ``"all"``   → return every item whose ``next_review_at`` is on or
+                      before today (today + overdue). This is the default and
+                      preserves the existing behavior.
+        ``"today"`` → restrict to items whose ``next_review_at::date`` is
+                      exactly CURRENT_DATE. The dashboard's "Due Today" card
+                      uses this so it never shows overdue items that belong
+                      on the Revision tab.
 
     Results are ordered by next_review_at ASC (most overdue first).
     """
+    if filter_mode == "today":
+        date_predicate = "rb.next_review_at::date = CURRENT_DATE"
+    else:
+        date_predicate = "rb.next_review_at::date <= CURRENT_DATE"
+
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT
                         rb.problem_id,
                         rb.confidence_last,
@@ -1064,7 +1085,7 @@ async def get_due_revision_items(user_id: int) -> List[dict]:
                     FROM revision_bank rb
                     JOIN leetcode_problems lp ON lp.question_id = rb.problem_id
                     WHERE rb.user_id = %s
-                      AND rb.next_review_at::date <= CURRENT_DATE
+                      AND {date_predicate}
                     ORDER BY rb.next_review_at ASC
                 """, (user_id,))
                 rows = []
@@ -1130,13 +1151,27 @@ async def get_all_revision_items(
     user_id: int,
     page: int = 1,
     limit: int = 10,
+    filter_mode: str = "all",
 ) -> dict:
-    """Return ALL revision-bank items for a user (paginated), regardless of
-    whether next_review_at is in the past or future.
+    """Return revision-bank items for a user (paginated), with optional
+    filtering and per-mode ordering.
 
-    Unlike ``get_due_revision_items``, this query has **no** ``next_review_at
-    <= NOW()`` predicate — it surfaces the entire tracking population so the
-    mobile client can render a comprehensive "All Problems" view.
+    Parameters
+    ----------
+    user_id : int
+        The user whose revision bank we are querying.
+    page, limit : int
+        Standard 1-based pagination.
+    filter_mode : str
+        ``"all"``     → return every row in the user's revision bank,
+                        regardless of ``next_review_at``. Ordered by
+                        ``lp.question_id ASC`` (sequential LeetCode
+                        problem-ID order — the natural "All Problems"
+                        traversal). This is the default.
+        ``"overdue"`` → restrict to rows whose ``next_review_at::date``
+                        is strictly before CURRENT_DATE (negative
+                        ``days_remaining``), ordered by
+                        ``rb.next_review_at ASC`` (most overdue first).
 
     Returns
     -------
@@ -1150,11 +1185,21 @@ async def get_all_revision_items(
     """
     offset = (page - 1) * limit
 
+    if filter_mode == "overdue":
+        where_clause = (
+            "WHERE rb.user_id = %(user_id)s "
+            "  AND rb.next_review_at::date < CURRENT_DATE"
+        )
+        order_clause = "ORDER BY rb.next_review_at ASC"
+    else:
+        where_clause = "WHERE rb.user_id = %(user_id)s"
+        order_clause = "ORDER BY lp.question_id ASC"
+
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
-                    """
+                    f"""
                     WITH ranked AS (
                         SELECT
                             rb.problem_id,
@@ -1173,8 +1218,8 @@ async def get_all_revision_items(
                         FROM revision_bank rb
                         JOIN leetcode_problems lp
                           ON lp.question_id = rb.problem_id
-                        WHERE rb.user_id = %(user_id)s
-                        ORDER BY rb.next_review_at ASC
+                        {where_clause}
+                        {order_clause}
                     )
                     SELECT * FROM ranked
                     LIMIT  %(limit)s

@@ -10,11 +10,16 @@ import '../../data/models/user_stats.dart';
 import '../providers/progress_provider.dart';
 import 'due_reviews_card.dart';
 
-/// Full-screen paginated view of the user's entire revision bank.
+/// Full-screen paginated view of the user's overdue revision items.
 ///
-/// Pushed via [Navigator.push] from [RevisionTab].
+/// Pushed via [Navigator.push] from [RevisionTab] when the "Overdue" stat
+/// card is tapped.
 ///
-/// Performance rules (v2 — June 2026):
+/// Reads from the ``"overdue"`` page cache inside [ProgressProvider], so
+/// pre-fetched pages of "All Problems" are preserved when the user
+/// switches back and forth between the two views.
+///
+/// Performance rules (mirrored from [AllProblemsView]):
 ///   - Renders at most 10 items per page (GPU budget).
 ///   - [RepaintBoundary] wraps the item list and the pagination bar.
 ///   - Page transitions use [AnimatedSwitcher] with a composited
@@ -25,15 +30,14 @@ import 'due_reviews_card.dart';
 ///   - **P2**: Star icons pre-built once per item, not per frame.
 ///   - **P3**: Root `Consumer` replaced with `Selector` to prevent
 ///     phantom rebuilds from unrelated provider mutations.
-///   - **P4**: `const` promotions on all static layout primitives.
-class AllProblemsView extends StatefulWidget {
-  const AllProblemsView({super.key});
+class OverdueProblemsView extends StatefulWidget {
+  const OverdueProblemsView({super.key});
 
   @override
-  State<AllProblemsView> createState() => _AllProblemsViewState();
+  State<OverdueProblemsView> createState() => _OverdueProblemsViewState();
 }
 
-class _AllProblemsViewState extends State<AllProblemsView> {
+class _OverdueProblemsViewState extends State<OverdueProblemsView> {
   int _currentPage = 1;
   static const int _pageSize = 10;
 
@@ -47,9 +51,9 @@ class _AllProblemsViewState extends State<AllProblemsView> {
       if (!context.mounted) return;
       // Switch the provider's active filter mode so its public getters
       // (allRevisionItems, totalRevisionCount, isLoadingRevision) read
-      // from the "all" page cache.
+      // from the "overdue" page cache.
       final provider = context.read<ProgressProvider>();
-      provider.setFilterMode('all');
+      provider.setFilterMode('overdue');
       _loadPage(1);
     });
   }
@@ -59,7 +63,7 @@ class _AllProblemsViewState extends State<AllProblemsView> {
     provider.fetchAllRevisionItems(
       page: page,
       limit: _pageSize,
-      filterMode: 'all',
+      filterMode: 'overdue',
     );
   }
 
@@ -96,7 +100,7 @@ class _AllProblemsViewState extends State<AllProblemsView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('All Problems'),
+        title: const Text('Overdue'),
         centerTitle: false,
       ),
       // ── P3: Selector instead of Consumer ────────────────────────────────
@@ -236,20 +240,20 @@ class _AllProblemsViewState extends State<AllProblemsView> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.inbox_outlined,
+              Icons.check_circle_outline_rounded,
               size: 56,
               color: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 16),
             Text(
-              'No Problems Yet',
+              'Nothing Overdue',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Log a LeetCode problem with a confidence\nscore to start building your revision bank.',
+              'Great work — you\'re all caught up.\nNo problems are past their review date.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
@@ -275,7 +279,7 @@ class _AllProblemsViewState extends State<AllProblemsView> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       itemCount: items.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (_, index) => _ProblemCard(
+      itemBuilder: (_, index) => _OverdueProblemCard(
         item: items[index],
         theme: theme,
         colorScheme: colorScheme,
@@ -286,51 +290,11 @@ class _AllProblemsViewState extends State<AllProblemsView> {
 }
 
 // =============================================================================
-// _ProblemCard — single revision-bank item card
+// _OverdueProblemCard — single overdue revision-bank item card
 // =============================================================================
 
-/// ── P4: Shared const primitives ─────────────────────────────────────────────
-/// Hoisted to file scope so every card instance shares the same canonical
-/// objects. Eliminates ~20 redundant allocations per card per frame.
-const _kCardPadding = EdgeInsets.all(14);
-const _kPillPadding = EdgeInsets.symmetric(horizontal: 7, vertical: 3);
-const _kPillRadius  = BorderRadius.all(Radius.circular(6));
-const _kStarSize    = 14.0;
-const _kAmberColor  = Color(0xFFF59E0B);
-
-/// ── P4: Static platform badge ───────────────────────────────────────────────
-/// The 'LC' badge never changes — extracted as a top-level const widget so it
-/// is canonicalized once and reused across all card instances without any
-/// per-frame allocation.
-class _PlatformBadge extends StatelessWidget {
-  const _PlatformBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: _kPillPadding,
-      decoration: BoxDecoration(
-        color: _kAmberColor.withValues(alpha: 0.14),
-        borderRadius: _kPillRadius,
-        border: Border.all(
-          color: _kAmberColor.withValues(alpha: 0.30),
-          width: 0.6,
-        ),
-      ),
-      child: const Text(
-        'LC',
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          color: _kAmberColor,
-        ),
-      ),
-    );
-  }
-}
-
-class _ProblemCard extends StatefulWidget {
-  const _ProblemCard({
+class _OverdueProblemCard extends StatefulWidget {
+  const _OverdueProblemCard({
     required this.item,
     required this.theme,
     required this.colorScheme,
@@ -343,10 +307,10 @@ class _ProblemCard extends StatefulWidget {
   final bool isDark;
 
   @override
-  State<_ProblemCard> createState() => _ProblemCardState();
+  State<_OverdueProblemCard> createState() => _OverdueProblemCardState();
 }
 
-class _ProblemCardState extends State<_ProblemCard> {
+class _OverdueProblemCardState extends State<_OverdueProblemCard> {
   bool _pressed = false;
 
   // ── P2: Pre-built star row ─────────────────────────────────────────────────
@@ -361,7 +325,7 @@ class _ProblemCardState extends State<_ProblemCard> {
   }
 
   @override
-  void didUpdateWidget(covariant _ProblemCard oldWidget) {
+  void didUpdateWidget(covariant _OverdueProblemCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.confidenceLast != widget.item.confidenceLast ||
         oldWidget.colorScheme != widget.colorScheme) {
@@ -378,8 +342,8 @@ class _ProblemCardState extends State<_ProblemCard> {
         final filled = i < confidence;
         return Icon(
           filled ? Icons.star_rounded : Icons.star_outline_rounded,
-          size: _kStarSize,
-          color: filled ? _kAmberColor : dimColor,
+          size: 14.0,
+          color: filled ? const Color(0xFFF59E0B) : dimColor,
         );
       }),
     );
@@ -396,18 +360,17 @@ class _ProblemCardState extends State<_ProblemCard> {
   // No more DateTime.now(), DateTime.tryParse(), .toLocal(), or midnight
   // truncation running in the build loop. The server already computes this.
 
-  static String _daysLabel(int days) {
-    if (days == 0) return 'Due Today';
-    if (days == 1) return 'Due Tomorrow';
-    if (days > 1) return 'Due in $days days';
-    return 'Overdue by ${days.abs()} days';
+  static String _overdueLabel(int days) {
+    final n = days.abs();
+    if (n == 1) return '1 day overdue';
+    return '$n days overdue';
   }
 
-  static Color _daysColor(int days) {
-    if (days == 0) return const Color(0xFFE53935);     // due today — red
-    if (days == 1) return const Color(0xFFF59E0B);     // tomorrow — yellow
-    if (days > 1) return const Color(0xFF9E9E9E);      // upcoming — neutral
-    return const Color(0xFFB71C1C);                    // overdue — deep red
+  static Color _overdueColor(int days) {
+    // Deeper red the longer the item is overdue.
+    if (days.abs() >= 7) return const Color(0xFF8B0000);
+    if (days.abs() >= 3) return const Color(0xFFB71C1C);
+    return const Color(0xFFE53935);
   }
 
   @override
@@ -417,8 +380,9 @@ class _ProblemCardState extends State<_ProblemCard> {
     final diffColor = _difficultyColor(item.difficulty);
 
     // ── P1: Server-computed field, zero per-frame cost ──────────────────────
-    final int days  = item.daysRemaining.round();
-    final daysColor = _daysColor(days);
+    final int days      = item.daysRemaining.round();
+    final overdueColor = _overdueColor(days);
+    final overdueLabel = _overdueLabel(days);
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -439,11 +403,11 @@ class _ProblemCardState extends State<_ProblemCard> {
         curve: Curves.easeOutCubic,
         child: GlassCard(
           child: Padding(
-            padding: _kCardPadding,
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Row 1: title + platform badge ─────────────────────────
+                // ── Row 1: title + overdue badge ────────────────────────
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -458,21 +422,43 @@ class _ProblemCardState extends State<_ProblemCard> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // ── P4: Extracted const widget ──────────────────────────
-                    const _PlatformBadge(),
+                    // Overdue badge — most overdue first surfaces at the top
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: overdueColor.withValues(alpha: 0.14),
+                        borderRadius:
+                            const BorderRadius.all(Radius.circular(6)),
+                        border: Border.all(
+                          color: overdueColor.withValues(alpha: 0.30),
+                          width: 0.6,
+                        ),
+                      ),
+                      child: Text(
+                        overdueLabel,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: overdueColor,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
 
-                // ── Row 2: difficulty pill + stars + days ticker ───────────
+                // ── Row 2: difficulty pill + stars + problem id ───────────
                 Row(
                   children: [
                     // Difficulty pill
                     Container(
-                      padding: _kPillPadding,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: diffColor.withValues(alpha: 0.12),
-                        borderRadius: _kPillRadius,
+                        borderRadius:
+                            const BorderRadius.all(Radius.circular(6)),
                       ),
                       child: Text(
                         item.difficulty,
@@ -490,20 +476,14 @@ class _ProblemCardState extends State<_ProblemCard> {
 
                     const Spacer(),
 
-                    // Days ticker
-                    Container(
-                      padding: _kPillPadding,
-                      decoration: BoxDecoration(
-                        color: daysColor.withValues(alpha: 0.10),
-                        borderRadius: _kPillRadius,
-                      ),
-                      child: Text(
-                        _daysLabel(days),
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: daysColor,
-                        ),
+                    // Problem id (#1234) — informational
+                    Text(
+                      '#${item.problemId}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.5),
                       ),
                     ),
                   ],
