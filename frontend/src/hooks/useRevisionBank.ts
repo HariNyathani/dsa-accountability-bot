@@ -32,11 +32,11 @@ export function useRevisionBank() {
   const limit = 10;
 
   const due = useApi(
-    (signal) => api.getDueRevisionItems({ signal }),
+    async (signal) => ({ data: await api.getDueRevisionItems({ signal }) }),
     []
   );
   const history = useApi(
-    (signal) => api.getAllRevisionItems(page, limit, { signal }),
+    async (signal) => ({ data: await api.getAllRevisionItems(page, limit, { signal }) }),
     [page]
   );
   const [submitting, setSubmitting] = useState(false);
