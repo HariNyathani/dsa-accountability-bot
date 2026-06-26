@@ -4,6 +4,8 @@
 /// `APIResponse.data` envelope returned by our VPS backend.
 library;
 
+import 'dart:convert' show jsonDecode;
+
 // =============================================================================
 // UserStats — GET /users/{id}/stats → APIResponse<UserStats>
 // =============================================================================
@@ -110,6 +112,8 @@ class ActivityLog {
     this.messageContent,
     this.topics,
     this.parsedFields,
+    this.relativeTime,
+    this.difficulty,
   });
 
   final int id;
@@ -119,15 +123,69 @@ class ActivityLog {
   final String? topics;
   final String? parsedFields;
 
+  /// Human-readable relative time, e.g. "2h ago", pre-computed in
+  /// [ActivityLog.fromJson] to avoid per-frame `DateTime.now()` and
+  /// `DateTime.parse()` calls during list rebuilds.
+  final String? relativeTime;
+
+  /// Cached difficulty parsed from [parsedFields] JSON, normalized
+  /// to lowercase ("easy" | "medium" | "hard" | null). Computed once
+  /// in [ActivityLog.fromJson].
+  final String? difficulty;
+
   factory ActivityLog.fromJson(Map<String, dynamic> json) {
+    final postedAt = json['posted_at']?.toString() ?? '';
+    final parsedFields = json['parsed_fields']?.toString();
+
     return ActivityLog(
       id: (json['id'] as num?)?.toInt() ?? 0,
-      postedAt: json['posted_at']?.toString() ?? '',
+      postedAt: postedAt,
       messageType: json['message_type']?.toString() ?? '',
       messageContent: json['message_content']?.toString(),
       topics: json['topics']?.toString(),
-      parsedFields: json['parsed_fields']?.toString(),
+      parsedFields: parsedFields,
+      relativeTime: _computeRelativeTime(postedAt),
+      difficulty: _extractDifficulty(parsedFields),
     );
+  }
+
+  /// Computes a human-readable relative time string. Returns an empty
+  /// string when the input cannot be parsed.
+  static String _computeRelativeTime(String isoString) {
+    if (isoString.isEmpty) return '';
+    try {
+      final date = DateTime.parse(isoString);
+      final diff = DateTime.now().difference(date);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${date.day}/${date.month}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Extracts a difficulty label from the backend's `parsed_fields`
+  /// JSON string. Expects a JSON object containing either an
+  /// `entries[0].difficulty` or a top-level `difficulty` field.
+  /// Returns lowercase, or null if not present.
+  static String? _extractDifficulty(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final parsed = jsonDecode(raw);
+      if (parsed is! Map) return null;
+      final entries = parsed['entries'];
+      if (entries is List && entries.isNotEmpty && entries[0] is Map) {
+        final diff = entries[0]['difficulty']?.toString();
+        if (diff != null && diff.isNotEmpty) return diff.toLowerCase();
+      }
+      final top = parsed['difficulty'];
+      if (top != null) return top.toString().toLowerCase();
+    } catch (_) {
+      // Malformed JSON — gracefully ignore.
+    }
+    return null;
   }
 }
 
@@ -343,6 +401,18 @@ class RevisionTopicStat {
       avgConfidence: (json['avg_confidence'] as num?)?.toDouble() ?? 5.0,
       problemCount: (json['problem_count'] as num?)?.toInt() ?? 0,
     );
+  }
+}
+
+/// Helpers for working with a list of [RevisionTopicStat] — keeps the
+/// aggregation math out of `build()` methods.
+extension RevisionTopicStatsX on List<RevisionTopicStat> {
+  /// Returns the arithmetic mean of [RevisionTopicStat.avgConfidence]
+  /// across the list, or `0.0` if the list is empty.
+  double get averageConfidence {
+    if (isEmpty) return 0.0;
+    final sum = fold<double>(0.0, (acc, stat) => acc + stat.avgConfidence);
+    return sum / length;
   }
 }
 

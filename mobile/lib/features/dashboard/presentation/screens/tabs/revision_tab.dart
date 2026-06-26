@@ -131,11 +131,11 @@ class _RevisionTabState extends State<RevisionTab> {
   ) {
     final total   = provider.totalRevisionCount;
     final due     = provider.dueReviews.length;
-    
+
+    // P4: aggregation moved to a model extension so this method
+    // doesn't allocate a fold closure on every rebuild.
     final stats = provider.revisionTopicStats;
-    final double avgConfidence = stats.isEmpty 
-        ? 0.0 
-        : stats.fold(0.0, (sum, stat) => sum + stat.avgConfidence) / stats.length;
+    final double avgConfidence = stats.averageConfidence;
     final String avgConfStr = '${avgConfidence.toStringAsFixed(1)} / 5';
 
     final loading = provider.isLoadingRevision;

@@ -1,9 +1,10 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mobile/core/theme/theme_provider.dart';
+import 'package:mobile/core/widgets/cached_avatar.dart';
 import 'package:mobile/core/widgets/glass_card.dart';
 import 'package:mobile/core/widgets/skeleton_card.dart';
 import 'package:mobile/core/widgets/spring_curve.dart';
@@ -49,7 +50,19 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final profile = context.watch<UserProfileProvider>();
+
+    // P4: Selector replaces context.watch<UserProfileProvider>() so
+    // the tab only rebuilds when one of the displayed profile fields
+    // actually changes.
+    final profileSnap = context.select<UserProfileProvider, _ProfileSnap>(
+      (p) => (
+        username: p.username,
+        discordUsername: p.discordUsername,
+        timezone: p.timezone,
+        rank: p.leaderboardRank,
+        isLoading: p.isLoading,
+      ),
+    );
 
     return SafeArea(
       bottom: false,
@@ -59,20 +72,20 @@ class _ProfileTabState extends State<ProfileTab> {
           children: [
             // ── 1. Identity Header ──────────────────────────────────────
             const SizedBox(height: 12),
-            _buildAvatar(colorScheme, profile),
+            _buildAvatar(colorScheme, profileSnap),
             const SizedBox(height: 20),
             Text(
-              profile.discordUsername ?? 'User',
+              profileSnap.discordUsername ?? 'User',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.3,
               ),
             ),
-            if (profile.username != null &&
-                profile.username!.isNotEmpty) ...[
+            if (profileSnap.username != null &&
+                profileSnap.username!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
-                '@${profile.username}',
+                '@${profileSnap.username}',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
@@ -81,20 +94,20 @@ class _ProfileTabState extends State<ProfileTab> {
             const SizedBox(height: 40),
 
             // ── 2. Vanity Stats Triptych ────────────────────────────────
-            _buildVanityStats(theme, colorScheme, profile),
+            _buildVanityStats(theme, colorScheme, profileSnap),
             const SizedBox(height: 40),
 
 
             // ── 4. Preferences ──────────────────────────────────────────
             _sectionLabel(theme, 'Preferences'),
             const SizedBox(height: 12),
-            _buildPreferences(theme, colorScheme, profile),
+            _buildPreferences(theme, colorScheme, profileSnap),
             const SizedBox(height: 32),
 
             // ── 5. Account ──────────────────────────────────────────────
             _sectionLabel(theme, 'Account'),
             const SizedBox(height: 12),
-            _buildAccountSection(theme, colorScheme, profile),
+            _buildAccountSection(theme, colorScheme, profileSnap),
             const SizedBox(height: 24),
 
             // ── 6. Version footer ───────────────────────────────────────
@@ -117,34 +130,18 @@ class _ProfileTabState extends State<ProfileTab> {
   // 1. Avatar
   // ===========================================================================
 
-  Widget _buildAvatar(ColorScheme colorScheme, UserProfileProvider profile) {
-    final initial = profile.discordUsername?.isNotEmpty == true
-        ? profile.discordUsername![0].toUpperCase()
-        : null;
+  Widget _buildAvatar(ColorScheme colorScheme, _ProfileSnap snap) {
+    // P3: CachedAvatar — wired to read profile.avatarUrl when the
+    // backend starts surfacing Discord avatar URLs. Falls back to the
+    // same initial-letter bubble (or person icon) as before.
+    final initial = snap.discordUsername?.isNotEmpty == true
+        ? snap.discordUsername![0].toUpperCase()
+        : '?';
 
-    return Container(
-      width: 80,
-      height: 80,
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        shape: BoxShape.circle,
-      ),
-      child: initial != null
-          ? Center(
-              child: Text(
-                initial,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  color: colorScheme.primary,
-                ),
-              ),
-            )
-          : Icon(
-              Icons.person_rounded,
-              size: 38,
-              color: colorScheme.primary,
-            ),
+    return CachedAvatar(
+      url: null, // wire up to profile.avatarUrl when backend exposes it
+      fallbackInitial: initial,
+      size: 80,
     );
   }
 
@@ -155,13 +152,15 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget _buildVanityStats(
     ThemeData theme,
     ColorScheme colorScheme,
-    UserProfileProvider profile,
+    _ProfileSnap snap,
   ) {
-    return Consumer<ProgressProvider>(
-      builder: (context, provider, _) {
-        final stats = provider.stats;
-        final isLoading = provider.isLoading;
-
+    return Selector<ProgressProvider, ({int? totalMessages, int? longestStreak, bool isLoading})>(
+      selector: (_, p) => (
+        totalMessages: p.stats?.totalMessages,
+        longestStreak: p.stats?.longestStreak,
+        isLoading: p.isLoading,
+      ),
+      builder: (context, ps, _) {
         return GlassCard(
           child: Padding(
             padding: const EdgeInsets.symmetric(
@@ -174,27 +173,27 @@ class _ProfileTabState extends State<ProfileTab> {
                   theme,
                   colorScheme,
                   'Solved',
-                  isLoading || stats == null
+                  ps.isLoading || ps.totalMessages == null
                       ? null
-                      : stats.totalMessages.toString(),
+                      : ps.totalMessages.toString(),
                 ),
                 _verticalDivider(colorScheme),
                 _statColumn(
                   theme,
                   colorScheme,
                   'Best Streak',
-                  isLoading || stats == null
+                  ps.isLoading || ps.longestStreak == null
                       ? null
-                      : '${stats.longestStreak}',
+                      : '${ps.longestStreak}',
                 ),
                 _verticalDivider(colorScheme),
                 _statColumn(
                   theme,
                   colorScheme,
                   'Rank',
-                  profile.leaderboardRank != null
-                      ? '#${profile.leaderboardRank}'
-                      : (profile.isLoading ? null : '—'),
+                  snap.rank != null
+                      ? '#${snap.rank}'
+                      : (snap.isLoading ? null : '—'),
                 ),
               ],
             ),
@@ -212,7 +211,7 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget _buildPreferences(
     ThemeData theme,
     ColorScheme colorScheme,
-    UserProfileProvider profile,
+    _ProfileSnap snap,
   ) {
     return GlassCard(
       child: Column(
@@ -221,7 +220,7 @@ class _ProfileTabState extends State<ProfileTab> {
           InkWell(
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(24)),
-            onTap: () => _showTimezoneSheet(profile),
+            onTap: _showTimezoneSheet,
             child: Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -238,7 +237,7 @@ class _ProfileTabState extends State<ProfileTab> {
                                 ?.copyWith(fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
                         Text(
-                          profile.timezone,
+                          snap.timezone,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -311,7 +310,9 @@ class _ProfileTabState extends State<ProfileTab> {
                           ),
                           onSubmitted: (value) {
                             if (value.trim().isNotEmpty) {
-                              profile.updateEmail(value.trim());
+                              context
+                                  .read<UserProfileProvider>()
+                                  .updateEmail(value.trim());
                             }
                           },
                         ),
@@ -348,7 +349,9 @@ class _ProfileTabState extends State<ProfileTab> {
                               onTap: () {
                                 final email = _emailController.text.trim();
                                 if (email.isNotEmpty) {
-                                  profile.updateEmail(email);
+                                  context
+                                      .read<UserProfileProvider>()
+                                      .updateEmail(email);
                                   FocusScope.of(context).unfocus();
                                 }
                               },
@@ -526,17 +529,17 @@ class _ProfileTabState extends State<ProfileTab> {
     'Europe/London',
   ];
 
-  void _showTimezoneSheet(UserProfileProvider profile) {
+  void _showTimezoneSheet() {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       elevation: 0,
       builder: (ctx) => _TimezoneSheet(
-        currentTimezone: profile.timezone,
+        currentTimezone: context.read<UserProfileProvider>().timezone,
         timezones: _timezones,
         onSelected: (tz) {
-          profile.updateTimezone(tz);
+          context.read<UserProfileProvider>().updateTimezone(tz);
           Navigator.pop(ctx);
         },
       ),
@@ -561,7 +564,7 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget _buildAccountSection(
     ThemeData theme,
     ColorScheme colorScheme,
-    UserProfileProvider profile,
+    _ProfileSnap snap,
   ) {
     return GlassCard(
       child: Column(
@@ -570,7 +573,8 @@ class _ProfileTabState extends State<ProfileTab> {
           InkWell(
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(24)),
-            onTap: () => _showUsernameSheet(profile),
+            onTap: () =>
+                _showUsernameSheet(context.read<UserProfileProvider>()),
             child: _accountRow(
               theme: theme,
               colorScheme: colorScheme,
@@ -586,7 +590,7 @@ class _ProfileTabState extends State<ProfileTab> {
           InkWell(
             onTap: () async {
               final uri = Uri.parse(
-                'https://dsabot.in/api/users/${profile.userId}/export',
+                'https://dsabot.in/api/users/${context.read<UserProfileProvider>().userId}/export',
               );
               await launchUrl(uri, mode: LaunchMode.externalApplication);
             },
@@ -726,6 +730,21 @@ class _ProfileTabState extends State<ProfileTab> {
     );
   }
 }
+
+// =============================================================================
+// P4: Internal typedef — the slim snapshot of UserProfileProvider
+//      fields the profile tab actually displays. Selector emits this
+//      record so unrelated mutations (e.g. error changes, rank changes
+//      driven by other flows) don't rebuild the whole tab.
+// =============================================================================
+
+typedef _ProfileSnap = ({
+  String? username,
+  String? discordUsername,
+  String timezone,
+  int? rank,
+  bool isLoading,
+});
 
 // =============================================================================
 // Timezone bottom sheet — searchable list

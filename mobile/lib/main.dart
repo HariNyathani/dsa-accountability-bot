@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'core/network/api_client.dart';
+import 'core/network/cache_config.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
@@ -11,8 +12,14 @@ import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/dashboard/presentation/providers/leaderboard_provider.dart';
 import 'features/dashboard/presentation/screens/main_shell.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── P1: Initialize the disk-backed HTTP cache before any provider
+  //         that may issue a request on startup. This makes the very
+  //         first GET served from the previous session's cache
+  //         (cold-start time-to-first-byte ≈ 1ms).
+  await CacheConfig.init();
 
   final storage = SecureStorage();
   final apiClient = ApiClient(storage: storage);

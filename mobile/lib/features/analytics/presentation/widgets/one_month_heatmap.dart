@@ -72,19 +72,23 @@ class OneMonthHeatmap extends StatelessWidget {
         ? const Color(0xFF1A1A1A) // Slightly lighter than pure black.
         : const Color(0xFFF5F2EB); // Biscuit beige.
 
-    // Pre-compute colour tiers once per build so itemBuilder doesn't call
-    // Color.lerp on every cell. On a 35-cell grid this avoids ~105 lerp
-    // computations per frame.
+    // P4: Pre-compute colour tiers once per build so itemBuilder doesn't
+    // call Color.lerp on every cell. On a 35-cell grid this avoids ~105
+    // lerp computations per frame.
     final tier1 = Color.lerp(baseEmpty, accent, 0.25)!;
     final tier2 = Color.lerp(baseEmpty, accent, 0.50)!;
     final tier3 = Color.lerp(baseEmpty, accent, 0.75)!;
+
+    // P4: Day-of-week headers hoisted to a const list so the .map()
+    // doesn't allocate on every build.
+    const dayHeaders = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Day-of-week column headers.
         Row(
-          children: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+          children: dayHeaders
               .map(
                 (d) => Expanded(
                   child: Center(

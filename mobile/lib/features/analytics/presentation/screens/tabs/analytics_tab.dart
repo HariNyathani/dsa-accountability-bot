@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../../core/widgets/glass_card.dart';
 import '../../../../../core/widgets/skeleton_card.dart';
+import '../../../../dashboard/data/models/user_stats.dart';
 import '../../../../dashboard/presentation/providers/progress_provider.dart';
 import '../../widgets/difficulty_breakdown.dart';
 import '../../widgets/one_month_heatmap.dart';
@@ -10,6 +11,12 @@ import '../../widgets/topic_distribution_chart.dart';
 
 /// Analytics tab — wired to [ProgressProvider] for live heatmap and
 /// distribution charts.
+///
+/// ### Performance (P4 — June 2026)
+/// Uses [Selector] with a record tuple so the tab only rebuilds when
+/// the specific fields consumed (stats, heatmap, topics, difficulty,
+/// isLoading) change. Unrelated provider mutations (e.g. review
+/// submissions) no longer ripple into this tab.
 class AnalyticsTab extends StatelessWidget {
   const AnalyticsTab({super.key});
 
@@ -20,14 +27,24 @@ class AnalyticsTab extends StatelessWidget {
 
     return SafeArea(
       bottom: false,
-      child: Consumer<ProgressProvider>(
-        builder: (context, provider, _) {
-          final stats = provider.stats;
-          final heatmap = provider.heatmap;
-          final isLoading = provider.isLoading;
+      child: Selector<ProgressProvider,
+          ({UserStats? stats, HeatmapData? heatmap, UserTopics? topics,
+              UserDifficulty? difficulty, bool isLoading})>(
+        selector: (_, p) => (
+          stats: p.stats,
+          heatmap: p.heatmap,
+          topics: p.topics,
+          difficulty: p.difficulty,
+          isLoading: p.isLoading,
+        ),
+        builder: (context, snap, _) {
+          final stats = snap.stats;
+          final heatmap = snap.heatmap;
+          final isLoading = snap.isLoading;
 
           return RefreshIndicator(
-            onRefresh: provider.fetchAll,
+            onRefresh: () =>
+                context.read<ProgressProvider>().fetchAll(),
             color: colorScheme.primary,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -120,14 +137,14 @@ class AnalyticsTab extends StatelessWidget {
 
                   // ── Topic Distribution ──────────────────────────────────
                   TopicDistributionChart(
-                    topics: provider.topics,
+                    topics: snap.topics,
                     isLoading: isLoading,
                   ),
                   const SizedBox(height: 24),
 
                   // ── Difficulty Breakdown ─────────────────────────────────
                   DifficultyBreakdown(
-                    difficulty: provider.difficulty,
+                    difficulty: snap.difficulty,
                     isLoading: isLoading,
                   ),
                   const SizedBox(height: 24),
