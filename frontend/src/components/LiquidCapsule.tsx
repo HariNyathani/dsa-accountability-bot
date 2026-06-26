@@ -46,13 +46,15 @@ export default function LiquidCapsule<T extends string | number>({
   const layoutId = useId();
   const reduce = useReducedMotion();
   const size =
-    items.length === 2
-      ? "compact"
-      : items.length === 3
-        ? "tri"
-        : variant === "nav"
-          ? "nav"
-          : "filter";
+    variant === "nav"
+      ? "nav"
+      : items.length === 2
+        ? "compact"
+        : items.length === 3
+          ? "tri"
+          : items.length === 4
+            ? "quad"
+            : "penta";
 
   const spring = reduce ? { duration: 0 } : snapSpring;
 

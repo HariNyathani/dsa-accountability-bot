@@ -36,7 +36,14 @@
   height: 48px;
 }
 
-.track[data-size="filter"] {
+.track[data-size="quad"] {
+  height: 46px;
+}
+
+.track[data-size="penta"] {
+  /* 5+ segments — same 46px row height as the 4-chip filter; segments size to
+     their own content so every button fits inside the track without the
+     fixed-fraction rules pushing the 5th segment out of bounds. */
   height: 46px;
 }
 
@@ -174,8 +181,19 @@
   width: 33.3333%;
 }
 
-.fit[data-size="filter"] .segment {
+.fit[data-size="quad"] .segment {
   width: 25%;
+}
+/* 5+ segments: do NOT force a fixed width — that would push the last segment
+   out of bounds (e.g. 5 × 25% = 125% overflow). Instead let each segment size
+   to its own content so the track shrink-wraps to fit all of them, and the
+   capsule naturally extends (to the left, since it lives in a right-aligned
+   actions slot) to accommodate the extra button without truncating any. */
+.fit[data-size="penta"] .segment {
+  flex: 0 0 auto;
+  width: max-content;
+  padding: 0 24px;
+  min-width: 0;
 }
 
 /* ── Stretched (fills elegant width) ────────────────────────────────────── */

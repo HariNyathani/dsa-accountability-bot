@@ -53,11 +53,11 @@
   --glass-border: 1px solid rgba(255, 255, 255, 0.5);
   --glass-shadow: 0 4px 12px rgba(122, 82, 52, 0.04);
 
-  /* Heatmap intensity ramp (chestnut espresso) */
+  /* Heatmap intensity ramp (LeetCode green) */
   --heat-0: rgba(122, 82, 52, 0.1);
-  --heat-1: rgba(122, 82, 52, 0.32);
-  --heat-2: rgba(122, 82, 52, 0.58);
-  --heat-3: rgba(122, 82, 52, 0.9);
+  --heat-1: #9be9a8;
+  --heat-2: #40c463;
+  --heat-3: #216e39;
   --capsule-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.25));
   --capsule-border: 0.8px solid rgba(255, 255, 255, 0.65);
   --capsule-shadow: 0 4px 12px rgba(122, 82, 52, 0.04);
@@ -111,11 +111,11 @@
   --glass-border: 1px solid rgba(255, 255, 255, 0.15);
   --glass-shadow: 0 4px 20px rgba(255, 255, 255, 0.02);
 
-  /* Heatmap intensity ramp (chestnut espresso) */
+  /* Heatmap intensity ramp (LeetCode green) */
   --heat-0: rgba(255, 255, 255, 0.05);
-  --heat-1: rgba(122, 82, 52, 0.45);
-  --heat-2: rgba(122, 82, 52, 0.72);
-  --heat-3: rgba(122, 82, 52, 0.95);
+  --heat-1: #0e4429;
+  --heat-2: #006d32;
+  --heat-3: #39d353;
   --capsule-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02));
   --capsule-border: 1px solid rgba(255, 255, 255, 0.15);
   --capsule-shadow: none;

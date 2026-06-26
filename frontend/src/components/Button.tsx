@@ -55,6 +55,7 @@ export default function Button({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={quickSpring}
+              style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
             >
               {idle}
             </motion.span>
