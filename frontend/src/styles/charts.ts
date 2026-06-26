@@ -3,10 +3,6 @@
  * leaks into pages. Reads pixel values from CSS custom properties at call time
  *(so theme toggles flow through without remounting the util).
  */
-const TOKEN = (name: string) =>
-  (typeof window !== "undefined"
-    ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-    : "") || "var(--accent)";
 
 /** Tooltip panel styled to match the glass popover surface. */
 export const tooltipStyle: React.CSSProperties = {

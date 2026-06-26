@@ -4,7 +4,7 @@ import s from "./EmptyState.module.css";
 interface Props {
   icon?: string;
   title: string;
-  message?: string;
+  message: string;
 }
 
 export function EmptyState({ icon = "📭", title, message }: Props) {
@@ -12,7 +12,7 @@ export function EmptyState({ icon = "📭", title, message }: Props) {
     <div className={s.state}>
       <div className={s.icon}>{icon}</div>
       <h3 className={s.title}>{title}</h3>
-      {message && <p className={s.msg}>{message}</p>}
+      <p className={s.msg}>{message}</p>
     </div>
   );
 }

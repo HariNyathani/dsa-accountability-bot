@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from "react";
+import { useId, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes, type ReactNode } from "react";
 import s from "./Field.module.css";
 
 interface BaseProps {
@@ -12,10 +12,11 @@ export function TextInput({
   className = "",
   ...rest
 }: BaseProps & InputHTMLAttributes<HTMLInputElement>) {
+  const id = useId();
   return (
-    <label className={s.field}>
+    <label className={s.field} htmlFor={id}>
       {label && <span className={s.label}>{label}</span>}
-      <input className={`${s.input}${className ? ` ${className}` : ""}`} {...rest} />
+      <input id={id} className={`${s.input}${className ? ` ${className}` : ""}`} {...rest} />
       {hint && <span className={s.hint}>{hint}</span>}
     </label>
   );
@@ -28,10 +29,11 @@ export function Select({
   children,
   ...rest
 }: BaseProps & SelectHTMLAttributes<HTMLSelectElement>) {
+  const id = useId();
   return (
-    <label className={s.field}>
+    <label className={s.field} htmlFor={id}>
       {label && <span className={s.label}>{label}</span>}
-      <select className={`${s.select}${className ? ` ${className}` : ""}`} {...rest}>
+      <select id={id} className={`${s.select}${className ? ` ${className}` : ""}`} {...rest}>
         {children}
       </select>
       {hint && <span className={s.hint}>{hint}</span>}
@@ -45,10 +47,11 @@ export function TextArea({
   className = "",
   ...rest
 }: BaseProps & TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const id = useId();
   return (
-    <label className={s.field}>
+    <label className={s.field} htmlFor={id}>
       {label && <span className={s.label}>{label}</span>}
-      <textarea className={`${s.area}${className ? ` ${className}` : ""}`} {...rest} />
+      <textarea id={id} className={`${s.area}${className ? ` ${className}` : ""}`} {...rest} />
       {hint && <span className={s.hint}>{hint}</span>}
     </label>
   );

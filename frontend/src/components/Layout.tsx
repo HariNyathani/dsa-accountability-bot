@@ -58,18 +58,24 @@ export default function Layout() {
     [authenticated]
   );
 
-  // Resolve the active nav key from the current path. /u/*, /users/*, /admin
-  // don't have their own nav slots; fall back to "" (no pill rendered).
+  // Resolve the active nav key from the current path.
+  // Profile (/u/*, /users/*) and admin (/admin) don't have dedicated nav slots,
+  // so we fall back to "/" (Dashboard) to keep the pill visible rather than
+  // letting it vanish and making the sidebar feel broken.
   const activeKey = useMemo(() => {
     const match = NAV.find((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)));
-    return match ? match.to : "";
+    if (match) return match.to;
+    if (pathname.startsWith("/u/") || pathname.startsWith("/users/") || pathname === "/admin") {
+      return "/";
+    }
+    return "";
   }, [pathname]);
 
   return (
     <div className={s.shell}>
       <aside className={s.sidebar}>
         <div className={s.brand}>
-          <img src="/Dsalogo.png" alt="DSA Tracker" />
+          <img src="/Dsalogo.png" alt="DSA Tracker" width="52" height="52" />
           <div>
             <h1>DSA Tracker</h1>
             <p>Accountability</p>
@@ -124,6 +130,11 @@ export default function Layout() {
             aria-label="Primary (mobile)"
           />
         </div>
+      </div>
+
+      {/* Mobile auth strip — visible only when sidebar is hidden (≤900px) */}
+      <div className={s.mobileAuth}>
+        <UserMenu />
       </div>
     </div>
   );

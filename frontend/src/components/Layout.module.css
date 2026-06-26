@@ -181,3 +181,20 @@
     display: none;
   }
 }
+
+/* ── Mobile auth chip (top-right corner, only visible when sidebar is hidden) */
+.mobileAuth {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobileAuth {
+    display: block;
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    z-index: 75;
+    /* Shrink the UserMenu trigger so it fits as a compact chip */
+    max-width: 180px;
+  }
+}

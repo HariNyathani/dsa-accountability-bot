@@ -1,33 +1,12 @@
 import s from "./Skeleton.module.css";
 
+/** Single shimmer element — the atomic building block for all skeleton states.
+ *  Composed by Loader.tsx into SkeletonCards / SkeletonRows / SkeletonChart. */
 export function Skeleton({ variant = "line", className = "" }: { variant?: "line" | "card" | "chart" | "row" | "block"; className?: string }) {
   return <div className={`${s.base} ${s[variant]}${className ? ` ${className}` : ""}`} aria-hidden />;
 }
 
+/** Single chart-sized card shimmer — re-exported by Loader.tsx as SkeletonChart. */
 export function SkeletonCard() {
-  return <Skeleton variant="chart" />;
-}
-
-export function SkeletonCards({ count = 6 }: { count?: number }) {
-  return (
-    <div className={s.grid}>
-      {Array.from({ length: count }).map((_, i) => (
-        <Skeleton key={i} variant="card" />
-      ))}
-    </div>
-  );
-}
-
-export function SkeletonRows({ count = 5 }: { count?: number }) {
-  return (
-    <div>
-      {Array.from({ length: count }).map((_, i) => (
-        <Skeleton key={i} variant="row" />
-      ))}
-    </div>
-  );
-}
-
-export function SkeletonChart() {
   return <Skeleton variant="chart" />;
 }

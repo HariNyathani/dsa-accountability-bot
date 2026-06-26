@@ -153,7 +153,7 @@ export default function UserProfilePage() {
   const ss = stats.data;
   const t = aggregate.data?.topics;
   const d = aggregate.data?.difficulty;
-  if (!u) return <EmptyState icon="👤" title="User not found" />;
+  if (!u) return <EmptyState icon="👤" title="User not found" message="This user hasn't registered with the bot yet, or the username is incorrect." />;
   const initials = (u.discord_username ?? "?").slice(0, 2).toUpperCase();
 
   const borderWidth = usernameStatus === "available"
@@ -274,7 +274,7 @@ export default function UserProfilePage() {
           <div className={sh.title}>📅 Weekly Summary History</div>
           {sums.loading ? <SkeletonRows count={5} /> : sums.data && sums.data.summaries.length > 0 ? (
             <div className={sh.tableWrap}>
-              <table className={sh.table}>
+              <table className={sh.table} aria-label="Weekly activity summary">
                 <thead>
                   <tr><th>Week</th><th>Posted</th><th>Missed</th><th>Consistency</th><th>Questions</th></tr>
                 </thead>

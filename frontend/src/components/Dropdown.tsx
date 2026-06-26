@@ -108,11 +108,18 @@ export default function Dropdown<T extends string | number>({
       ) : (
         <div
           role="button"
+          tabIndex={0}
           aria-haspopup="menu"
           aria-expanded={open}
           data-open={open}
           onClick={() => setOpen((o) => !o)}
-          style={{ display: "contents" }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setOpen((o) => !o);
+            }
+          }}
+          style={{ display: "block", width: "100%" }}
         >
           {children}
         </div>

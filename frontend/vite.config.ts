@@ -21,4 +21,21 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // Raise the warning threshold — the vendor chunk legitimately exceeds 500KB.
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Core React stack — cached across every deploy.
+          react: ["react", "react-dom", "react-router-dom"],
+          // Animation library — heavy but shared across all pages.
+          motion: ["motion/react"],
+          // Chart library — only needed on Analytics, Dashboard, Profile, Admin.
+          recharts: ["recharts"],
+        },
+      },
+    },
+  },
 });
+

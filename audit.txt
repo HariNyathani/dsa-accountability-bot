@@ -1,0 +1,505 @@
+I have everything. Here is the comprehensive audit.
+
+---
+
+# Frontend Audit Report
+
+**Scope:** `frontend/src/` — React 19 + TS + Vite + framer-motion + CSS Modules + CSS custom properties.
+**Build:** `tsc --noEmit` ✅ | `vite build` ✅ → 877KB JS / 47.75KB CSS (one chunk, Vite warns >500KB).
+**Severity legend:** 🔴 Critical · 🟠 High · 🟡 Medium · 🟢 Low.
+
+---
+
+## 🔴 1. Critical: UserMenu calls `useNavigate()` after an early return (Rules of Hooks violation)
+
+**File:** `frontend/src/components/UserMenu.tsx:40`
+
+```ts
+export default function UserMenu() {
+  const { user, authenticated, loading, login, logout, isAdmin } = useAuth();
+
+  if (loading) return ( <div className={s.loading}…>…</div> );            // early return
+  if (!authenticated || !user) return ( <div className={s.wrap}>…</div> ); // early return
+
+  const initials = user.username.slice(0, 2).toUpperCase();
+  const navigate = useNavigate();   // ← called only on the "authenticated" branch
+```
+
+React requires hooks to be called in the **same order on every render**. Here `useNavigate` is called only after two early returns. On the first render (loading) React sees 1 hook; on the next render (authenticated) React sees 2 hooks — **"Rendered fewer hooks than expected" runtime error in dev**, and the user menu will break the entire tree the moment auth resolves from `loading→authenticated`.
+
+**Fix:** Hoist `useNavigate` above the early returns.
+```ts
+export default function UserMenu() {
+  const { user, authenticated, loading, login, logout, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  if (loading) return …;
+  if (!authenticated || !user) return …;
+  // …
+}
+```
+
+---
+
+## 🔴 2. Critical: Login UI is unreachable on mobile-web (sidebar-only UserMenu)
+
+**File:** `frontend/src/components/Layout.tsx:97` + `frontend/src/components/Layout.module.css:169-176`
+
+`<UserMenu />` is rendered **only inside the sidebar** (line 97), and at `max-width: 900px` the sidebar is `display: none`. The mobile bottom nav (`.bottomNav`) has no login, no profile, and no theme switcher. An unauthenticated visitor opening the site on a phone sees no way to log in — and an authenticated user can't open their account menu or switch theme either.
+
+**Fix:** Add the login button (and the authenticated `<UserMenu/>` + `<ThemeSwitcher/>`) into the mobile bottom nav area, or render a floating auth chip on mobile when `useAuth().authenticated` is true. Minimum: render `<UserMenu />` outside the sidebar (e.g., fixed top-right on mobile) so it survives the `display:none`.
+
+---
+
+## 🔴 3. Critical: Admin users table uses raw `<a href>` (full page reload, not a Router Link)
+
+**File:** `frontend/src/pages/AdminPage.tsx:195`
+
+```tsx
+<a href={`/users/${u.user_id}`} className={sh.username} style={{ color: "var(--link)" }}>
+  {u.discord_username || "Unknown"}
+</a>
+```
+
+A plain anchor in an SPA causes a **full document reload** — drops in-memory state, re-runs the entire `AuthProvider`/`ThemeProvider` bootstrap (FOUC flash), re-fires the no-FOUC script, loses the active LiquidCapsule selection, and re-fetches every endpoint. The rest of the app uses React Router everywhere.
+
+**Fix:** Import and use `<Link>`:
+```tsx
+import { Link } from "react-router-dom";
+// …
+<Link to={`/u/${u.username || u.user_id}`} className={sh.username}>{u.discord_username || "Unknown"}</Link>
+```
+(prefer the vanity URL to match the other "profile" links in the app).
+
+---
+
+## 🟠 4. High: Leaderboard table rows use `<tr onClick>` (not keyboard-accessible, not semantic)
+
+**File:** `frontend/src/pages/LeaderboardPage.tsx:73`
+
+```tsx
+<tr key={e.user_id} onClick={() => nav(`/u/${e.username || e.user_id}`)}>
+```
+
+A `<tr>` is **not focusable**, is not announced as interactive to screen readers, and is not reachable by Tab. Keyboard users and assistive-tech users cannot navigate. This is also a known React anti-pattern (non-button element with click handler).
+
+**Fix:** Move the navigation onto the username cell as a `<Link>` (semantic, focusable, right-clickable, screen-reader announces "link, X"), and remove the `<tr onClick>`. Optionally also keep a row-level onClick *plus* `tabIndex={0}` and `onKeyDown` for Enter/Space — but the cleanest, most accessible fix is the `<Link>`.
+
+---
+
+## 🟠 5. High: UserMenu (and any custom-trigger Dropdown) is not keyboard-operable
+
+**File:** `frontend/src/components/Dropdown.tsx:108-122` and `frontend/src/components/UserMenu.tsx:66`
+
+The custom trigger path renders:
+```tsx
+<div role="button" aria-haspopup="menu" aria-expanded={open} data-open={open}
+     onClick={() => setOpen((o) => !o)} style={{ display: "contents" }}>
+  {children}
+</div>
+```
+
+Two compounding problems:
+1. **`display: contents`** removes the element from the box tree entirely — there is no focusable surface, no tab-order entry, and `role="button"` on a box-less element is not focusable by Tab.
+2. The custom child is a `<div>` (UserMenu) — also not focusable, no `onKeyDown` for Enter/Space.
+
+**Net effect:** The account menu cannot be opened with a keyboard; the trigger is invisible to the focus ring; only mouse works.
+
+**Fix:** Either
+- Render the custom trigger as a real `<button>` (the `trigger="trigger"` path already does), with the user-supplied children inside it, **or**
+- Keep the wrapper but require the custom child to be an accessible element (or pass `forwardRef`/clone) and add `onKeyDown` for Enter/Space that calls `setOpen(o => !o)`.
+
+Minimum patch: in the custom path, attach the keyboard handler to the wrapper:
+```tsx
+<div role="button" tabIndex={0} aria-haspopup="menu" aria-expanded={open}
+     onClick={() => setOpen(o => !o)}
+     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(o => !o); }}}
+     style={{ display: "contents" }}>
+```
+And drop `display: contents` (which makes the role/focus invisible) — or replace the whole wrapper with a `<button type="button" className={s.field}>` and let the child fill it.
+
+---
+
+## 🟠 6. High: `useRevisionBank` initializes `loading=false`, causing a flash of "empty" state on first paint
+
+**File:** `frontend/src/hooks/useRevisionBank.ts:29`
+
+```ts
+const [loading, setLoading] = useState<boolean>(false);
+```
+
+Unlike `useApi` (which correctly starts at `true` — see `useApi.ts:21`), this hook starts at `false`. The first render of `RevisionBankPage` therefore shows the "Queue Cleared!" empty state for one frame before the mount-effect fires and flips loading to `true`. Users see a misleading "you're done!" state.
+
+**Fix:**
+```ts
+const [loading, setLoading] = useState<boolean>(true);
+```
+
+---
+
+## 🟠 7. High: `Skeleton` and `Loader` export duplicate component sets (and one is broken)
+
+**File:** `frontend/src/components/Skeleton.tsx:11,15,21,31` vs `frontend/src/components/Loader.tsx:12,22,24`
+
+`Skeleton.tsx` exports `SkeletonCards`, `SkeletonChart`, `SkeletonRows` whose grid layout is **unstyled** (no `s.grid` / `s.cols` from `Loader.module.css`). `Loader.tsx` re-exports the same names from `Skeleton.tsx` *and* renders them inside its own styled `.grid`. Pages import from `Loader.tsx` (the styled version), so the `Skeleton.tsx` versions are dead code. Not a runtime bug, but confusing and a footgun for future contributors who might import the wrong path.
+
+**Fix:** Pick one source of truth. Delete the dead exports from `Skeleton.tsx` (keep only `Skeleton` and `SkeletonCard`), and have `Loader.tsx` compose with its own grid.
+
+---
+
+## 🟡 8. Medium: `useApi` `deps` parameter is `unknown[]` — no compile-time help, easy to forget
+
+**File:** `frontend/src/hooks/useApi.ts:17,50`
+
+```ts
+deps: unknown[] = [],
+// …
+}, [tick, enabled, ...deps]);
+```
+
+Callers pass `[uid]`, `[period]`, `[sortBy]`, etc. — but TS can't catch a missing dep. Across the codebase, the spread is correct (every page passes the right dependency), but the loose typing means a future caller who forgets the dep will silently get stale fetches.
+
+**Fix:** Tighten to `DependencyList` (from React) and document. Bonus: switch the effect to use `useRef` for the latest `fetcher` so the dep can be `[tick, enabled, ...deps]` without an eslint-disable.
+
+---
+
+## 🟡 9. Medium: Vite emits a single 877KB chunk (chunk-size warning) — no `manualChunks`
+
+**File:** `frontend/vite.config.ts`
+
+The bundle is 877KB unminified / 259KB gzip; Vite explicitly warns `chunks > 500kB`. Recharts + framer-motion are the two biggest deps. Splitting the vendor chunk (recharts, motion) into its own file would let the browser cache it across deploys and let code-split routes (MyDashboard, Analytics, Admin, RevisionBank) defer loading the chart library until needed.
+
+**Fix:**
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+// …
+build: {
+  rollupOptions: {
+    output: {
+      manualChunks: {
+        react: ["react", "react-dom", "react-router-dom"],
+        motion: ["motion/react"],
+        recharts: ["recharts"],
+      },
+    },
+  },
+  chunkSizeWarningLimit: 800,
+},
+```
+This drops the warning and shortens first-paint JS for routes that don't need charts.
+
+---
+
+## 🟡 10. Medium: `AdminRoute` and `AdminPage` async effects have no `cancelled` flag
+
+**Files:** `frontend/src/components/AdminRoute.tsx` (no async effect), `frontend/src/pages/AdminPage.tsx:71-74`
+
+```ts
+useEffect(() => {
+  fetchUsers();
+  api.health().then((r) => setHealthData(r.data)).catch(() => {});
+}, [fetchUsers]);
+```
+
+If the admin user navigates away mid-fetch, the `.then` callback calls `setHealthData` on an unmounted component → React logs a warning and leaks the closure. Easy to fix with a `cancelled` ref or `AbortController`.
+
+**Fix:**
+```ts
+useEffect(() => {
+  let cancelled = false;
+  fetchUsers();
+  api.health().then((r) => { if (!cancelled) setHealthData(r.data); }).catch(() => {});
+  return () => { cancelled = true; };
+}, [fetchUsers]);
+```
+
+---
+
+## 🟡 11. Medium: `useApi`'s exhaustive-deps is disabled — `fetcher` closure not in deps
+
+**File:** `frontend/src/hooks/useApi.ts:49-50`
+
+```ts
+return () => { cancelled = true; };
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [tick, enabled, ...deps]);
+```
+
+The current callers all spread the *real* deps (`[uid]`, `[period]`, `[sortBy]`) so the effect re-fires when needed and the `fetcher` closure is fresh. But this is fragile — a new caller who passes `[]` (empty deps) when they should pass `[id]` will get a stale fetcher forever. The eslint-disable hides the smell rather than fixing it.
+
+**Fix:** Keep the latest `fetcher` in a ref:
+```ts
+const fetcherRef = useRef(fetcher);
+useEffect(() => { fetcherRef.current = fetcher; });
+// then inside the effect: fetcherRef.current()
+```
+Now the effect can depend on `[tick, enabled, ...deps]` without lint, and is always safe.
+
+---
+
+## 🟡 12. Medium: `Heatmap` recomputes a stale 365-day range (no re-eval past midnight) + 730 inline arrow handlers
+
+**File:** `frontend/src/components/Heatmap.tsx:22-49, 105-106`
+
+Two real issues:
+1. The `useMemo([], …)` builds the 365-day window **once**. The first user to open the page at 23:59 sees a range that doesn't include tomorrow's "active day" until they hard-reload. Minor, but a `useMemo([todayKey], …)` (where `todayKey` is `formatDate(new Date())`) would re-anchor on midnight.
+2. The 365 tiles each create fresh `onMouseEnter`/`onMouseLeave` closures on every render (~730 new function objects per re-render). Either use event delegation on the parent `.cells` (one handler that finds the target via `e.target.dataset`), or memoize tile components. Minor perf, but the scale (365 × 730) makes it the most render-heavy thing in the app.
+
+---
+
+## 🟡 13. Medium: `Dropdown` panel `min-width: 100%` is broken under `display: contents` custom triggers
+
+**File:** `frontend/src/components/Dropdown.module.css:71` + `Dropdown.tsx`
+
+The trigger path is:
+- `trigger="trigger"` → renders a real `<button>` inside a `.field` (`position: relative`) — the panel anchors correctly via `min-width: 100%`.
+- `trigger="custom"` → the trigger wrapper uses `display: contents`, so `.field` has **no positioned box** (the wrapper's children participate in the *grandparent* layout, not `.field`). The panel, which is `position: absolute; top/bottom: calc(100%+10px) / calc(100%-8px)`, anchors to `.field` — but `.field` is now collapsed/inline with `display: contents`, so the panel's `top/left: 0` resolves to a nearby box's coordinate and the panel appears in the wrong place or at `(0,0)`.
+
+**Fix:** Either
+- Apply `position: relative` to a stable ancestor in the custom-trigger case (e.g., a real wrapper div with no `display: contents`), or
+- Don't use `display: contents`; use `width: 100%; display: flex` so `.field` keeps its positioned box and the children fill it.
+
+---
+
+## 🟡 14. Medium: `<Select>` option styling doesn't work cross-browser, and chevron SVG is hard-coded to dark theme
+
+**File:** `frontend/src/components/Field.module.css:50, 56-59`
+
+```css
+.select {
+  background-image: url("data:image/svg+xml,…stroke='%239e9e9e'…");
+}
+.select option { background: var(--bg-elevated); color: var(--text-primary); }
+```
+
+- The chevron SVG is baked with `stroke='%239e9e9e'` — in the light theme the stroke is still that mid-grey, which clashes with the Alabaster background. Should be `currentColor` or a token-driven CSS variable.
+- The `<option>` styling is honored by Chrome but ignored by Firefox/Safari (the OS renders the popup). On light theme, the OS-default white panel with mid-grey text is functional but inconsistent. A custom listbox Dropdown (already exists in the codebase) would fix this.
+
+---
+
+## 🟡 15. Medium: `useApi` initial `data=null` + `loading=true` means pages with `if (overview.error) return` short-circuit on first paint, hiding the skeleton
+
+**File:** `frontend/src/pages/AnalyticsPage.tsx:32` (and similar in DashboardPage, MyDashboardPage, UserProfilePage)
+
+```ts
+if (overview.error) return <ErrorState … />;
+const o = overview.data;
+```
+
+This is fine **after** the first fetch resolves. But on the first render `overview.error` is `null` and `overview.loading` is `true` and `overview.data` is `null`. The code proceeds to `const o = overview.data;` (null) and the JSX checks `overview.loading ? <Skeleton/> : o && <grid>` — correct. So this is OK, **but** if `overview` ever errors *during* a refetch (while `o` is still the previous data), `o` holds stale data and we render `<grid>` with stale content while the error boundary is **skipped because the error check runs first** → we render stale. The right pattern: render skeleton when `loading && !data`; render `ErrorState` on error **or** on `error && !data`; show stale data with a non-blocking toast on `error && data`. Minor.
+
+---
+
+## 🟡 16. Medium: `Field` component renders labels via `<label>` wrapping `<input>` — clicking the label focuses the input, but the label has no `htmlFor` association, breaking some assistive tech
+
+**File:** `frontend/src/components/Field.tsx:9-39`
+
+The implicit `<label><span>label</span><input/></label>` association works in browsers but screen readers sometimes handle the explicit `htmlFor`/`id` pairing better. Add a `useId()` and pass `htmlFor` to the `<label>` + `id` to the input.
+
+---
+
+## 🟡 17. Medium: `QuickLogCard` `<input type="hidden">` is not actually rendered (good), but the form has no `<form noValidate>` for the hidden field; also, the success message icon `✅` etc. are in `feedback.message` strings which the screen reader reads literally
+
+**File:** `frontend/src/components/QuickLogCard.tsx:38-140` (string feedback)
+
+`<input type="hidden">` is fine; remove it. The bigger issue: feedback messages embed emojis (`"✅ Successfully logged…"`, `"🛌 Rest Day Logged. See you tomorrow, legend!"`) that screen readers read as "check mark, Successfully logged...". Wrap the emoji in `aria-hidden` or move it out of the announced text.
+
+---
+
+## 🟡 18. Medium: `AdminPage` user-options `<Select>` uses `value={sudoUserId}` controlled — but if `users` loads after mount, React will warn that `<select>` has no matching option
+
+**File:** `frontend/src/pages/AdminPage.tsx:238-245`
+
+```tsx
+<Select value={sudoUserId} onChange={…}>
+  <option value="">Select a user…</option>
+  {users.map((u) => <option key={u.user_id} value={u.user_id}>…</option>)}
+</Select>
+```
+
+`sudoUserId` is `""` (empty string) initially — that matches the first `<option value="">`, so no warning. But if the user picks a user, then the page re-fetches and the user list temporarily omits that user (e.g., the server filters), the `<select>` has no matching value → React logs a warning. Add `<option value={u.user_id} hidden>` fallback, or reset `sudoUserId` to `""` when `users` changes.
+
+---
+
+## 🟡 19. Medium: `Layout` `activeKey` resolution makes the pill disappear on user-profile routes
+
+**File:** `frontend/src/components/Layout.tsx:63-66`
+
+```ts
+const activeKey = useMemo(() => {
+  const match = NAV.find((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)));
+  return match ? match.to : "";
+}, [pathname]);
+```
+
+On `/u/...` or `/users/...` or `/admin`, no NAV item matches → `activeKey = ""` → no pill is rendered. This is by design (a pill is not meaningful for a profile) but it makes the sidebar feel "broken" — the user lands on a profile page and the nav shows no active state. Add a sentinel: if `pathname` starts with `/u` or `/users`, default to `/` (Dashboard) so the Dashboard pill lights up, or render a soft persistent pill on My Dashboard when authenticated.
+
+---
+
+## 🟡 20. Medium: `useApi` does not re-validate when only `enabled` flips (the `tick` re-fire, but `enabled` from `false→true` only changes `enabled` dep — works, but tick + enabled + deps is fragile)
+
+**File:** `frontend/src/hooks/useApi.ts:50`
+
+This works in practice (MyDashboard flips `enabled` when auth resolves, `useApi(() => api.user(uid), [uid], enabled)` re-fires because `enabled` is in deps). But: if `enabled` flips `true→false→true` (e.g., user logs out and back in), the `tick` doesn't change — only `enabled` toggles, so the effect re-runs. Good. But a stale `data` from the previous enabled-true period is not cleared on `enabled → false`. Minor (page-level guards usually show skeletons first), but adding `setData(null); setError(null);` in the early-return branch makes the UX cleaner.
+
+---
+
+## 🟡 21. Medium: `Heatmap` weekday labels are `i % 2 === 0` (Sun, Tue, Thu, Sat) — looks broken, should be Mon/Wed/Fri or all
+
+**File:** `frontend/src/components/Heatmap.tsx:85`
+
+```tsx
+<div className={s.weekday}>{i % 2 === 0 ? day : ""}</div>
+```
+
+Showing every other weekday (Sun, Tue, Thu, Sat) is an unusual choice. Standard GitHub-style heatmaps show Mon, Wed, Fri (or all 7). This renders as Sun | (blank) | Tue | (blank) | Thu | (blank) | Sat, which looks misaligned. Replace with `i % 2 === 1` (Mon, Wed, Fri) or show all and let the visual rhythm carry.
+
+---
+
+## 🟡 22. Medium: `Layout` `<UserMenu />` for unauthenticated visitors renders the full Discord login button in the **sidebar footer** — on mobile (where the sidebar is `display:none`) there's **nowhere to log in** (see Critical #2)
+
+(Mirrored from #2; included here as a UI-consistency note.)
+
+---
+
+## 🟡 23. Medium: `Vite` proxy for `/api` rewrites the URL to *remove* `/api` — but the frontend's `api.ts` uses `const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api"` and the request helper does `request<T>(path)` without prefixing. Verify end-to-end
+
+**File:** `frontend/src/services/api.ts` and `vite.config.ts:18-22`
+
+The Vite proxy strips `/api` from the URL before forwarding to `localhost:8000`. This only matches if the frontend's `BASE === "/api"`. Worth a smoke test with the dev server + backend to confirm the pathing is correct. (Not a static-analysis bug, but a deployment risk.)
+
+---
+
+## 🟡 24. Medium: `tokens.css` `--heat-0` light is `rgba(122,82,52,0.1)` — very faint on Alabaster background; users may see the "L0" heat level as invisible
+
+**File:** `frontend/src/styles/tokens.css`
+
+On the `#F2E2DE` background, `rgba(122,82,52,0.1)` (light chestnut at 10%) is barely perceptible. Consider bumping to 0.18 for legibility, or use a separate "empty" color like `rgba(0,0,0,0.05)` for the trough.
+
+---
+
+## 🟡 25. Medium: `<table>` lacks `caption` or `aria-label` for screen readers
+
+**File:** `frontend/src/styles/shared.module.css` and pages using `<table className={s.table}>`
+
+Leaderboard, Admin (users), MyDashboard (weekly summary), UserProfile (weekly summary) all render `<table>`s with no `<caption>` or `aria-label`. Add `aria-label="Leaderboard rankings"` (etc.) on each `<table>`.
+
+---
+
+## 🟡 26. Medium: Modal `body` has no `tabIndex`, so keyboard focus can fall off the dialog
+
+**File:** `frontend/src/components/Modal.tsx:60`
+
+```tsx
+<motion.div className={s.dialog} role="dialog" aria-modal="true" …>
+```
+
+For full keyboard a11y, a focus trap (e.g., `focus-trap-react` or a manual implementation) should:
+- Focus the close button (or first focusable) on mount.
+- Trap Tab/Shift+Tab inside the dialog.
+- Restore focus to the trigger on unmount.
+
+---
+
+## 🟡 27. Medium: `EmptyState` `<p>` is `font-size: 0.95rem; max-width: 420px; line-height: 1.6` — fine, but the message prop is optional and falls through silently. Worth a default
+
+**File:** `frontend/src/components/EmptyState.tsx:8-13`
+
+`message` is optional; no `Default` text. Pages already always pass a message, so this is fine, but the type allows `message: string | undefined` — tighten to `message: string` and require callers to pass it.
+
+---
+
+## 🟡 28. Medium: `useApi` is imported in pages but `useRevisionBank` is used directly with its own state — inconsistent fetch pattern
+
+**File:** `frontend/src/hooks/useRevisionBank.ts` vs `frontend/src/hooks/useApi.ts`
+
+Two different fetch patterns coexist. The RevisionBank hook manages its own state (different from `useApi`'s) and doesn't expose `refetch` or a consistent error shape. Consider migrating it to use `useApi` internally (one hook per endpoint) for consistency.
+
+---
+
+## 🟡 29. Low: `Heatmap` tooltip via native `title` attribute — not styled, not touchable
+
+**File:** `frontend/src/components/Heatmap.tsx:103`
+
+For a premium feel, replace with a `Tooltip`-wrapped hover (the `Tooltip` component already exists) — but tile size (14px) makes a real tooltip impractical. A custom floating tooltip following the cursor on hover would match the Flutter app's tile tooltip.
+
+---
+
+## 🟡 30. Low: `Dropdown` panel `role="listbox"` but items are `role="option"` — correct, but `aria-selected` is set on each option; the trigger is missing `aria-activedescendant` for full keyboard navigation (arrow keys)
+
+**File:** `frontend/src/components/Dropdown.tsx:130-152`
+
+For full ARIA listbox semantics, the trigger should track the active option and set `aria-activedescendant={activeOptionId}`; arrow keys should move the highlight and Enter should select. Currently the dropdown is mouse-only (Esc + click-outside work, but arrow keys do nothing). Reasonable for v1; flag for a11y backlog.
+
+---
+
+## 🟡 31. Low: `<Dsalogo.png>` lacks width/height attributes → CLS
+
+**File:** `frontend/src/components/Layout.tsx:72`
+
+```tsx
+<img src="/Dsalogo.png" alt="DSA Tracker" />
+```
+
+Modern image best practice: include `width` and `height` to prevent layout shift. The CSS sets `height: 52px; width: auto`, but the aspect ratio isn't pre-declared, so the browser can't reserve space on first paint. Add `width="120" height="120"` (or whatever the natural size is).
+
+---
+
+## 🟡 32. Low: `theme.ts` `TOKEN()` helper is defined but unused
+
+**File:** `frontend/src/styles/charts.ts:6-9`
+
+Dead code. Either remove it or use it where needed.
+
+---
+
+## 🟡 33. Low: `Loader.tsx` re-exports `SkeletonCard` twice (line 22 and line 34)
+
+**File:** `frontend/src/components/Loader.tsx:22,34`
+
+`export { SkeletonCard as SkeletonChart };` and `export { SkeletonCard };` — two re-exports of the same thing under different names, with `SkeletonChart` already exported from `Skeleton.tsx` (line 31). Consolidate.
+
+---
+
+## 🟡 34. Low: `EmptyState` default `icon="📭"` for everything; some pages override but the message text is sometimes generic
+
+**File:** `frontend/src/components/EmptyState.tsx`
+
+Minor UX polish: the leaderboard empty says "Users need to start posting" but the analytics empty is just "No topic data yet" with no guidance. A small action link or hint would help.
+
+---
+
+## 🟡 35. Low: `Modal` `body` has `overflow-y: auto; flex: 1` but no min-height — long content collapses the dialog in some browsers
+
+**File:** `frontend/src/components/Modal.module.css:69`
+
+`min-height: 0` on `.body` is missing. In flex layouts, the body might not scroll correctly on Chrome/Safari if the dialog content overflows.
+
+---
+
+## 🟡 36. Low: `Field` `<input>` `font-size: 0.9rem` and `<label>` `font-size: 0.78rem` — touch targets on mobile are 14-15px tall, below the 16px iOS HIG minimum
+
+**File:** `frontend/src/components/Field.module.css:11-33`
+
+`padding: 12px 16px` + 0.9rem text = ~36px total. Fine. But the `label` is small (0.78rem) and clickable area on the label is just the text. Not a real bug, but a11y nit.
+
+---
+
+## 🟡 37. Low: `tokens.css` `--border` uses `rgba(28,26,23,0.10)` for light — color-mix incompatible with older browsers
+
+**File:** `frontend/src/styles/tokens.css`
+
+If you ever need to support older browsers (e.g., Safari < 16.2), `color-mix` and `rgba` in shadows work fine, but some `color-mix` usages (like `color-mix(in srgb, var(--text-primary) 65%, transparent)`) need a fallback. Modern browsers are fine; document the minimum browser requirement.
+
+---
+
+## Summary
+
+| Severity | Count | Highlights |
+|---|---|---|
+| 🔴 Critical | 3 | Rules-of-Hooks violation in UserMenu, no mobile login, `<a href>` full reload |
+| 🟠 High | 5 | `<tr onClick>` not keyboard-accessible, UserMenu trigger not focusable, `useRevisionBank` empty-state flash, duplicate Skeleton/Loader, Dropdown panel positioning broken under `display: contents` |
+| 🟡 Medium | ~22 | Chart chunk size, no chunkSizeWarningLimit, motion desyncs on `.pill` & `.track`, `useApi` deps typing, no manualChunks, `Heatmap` inline handlers, Vite proxy smoke-test, modal focus trap, a11y labels on tables, etc. |
+| 🟢 Low | ~7 | `Dsalogo.png` missing dimensions, dead `TOKEN()` helper, double SkeletonCard re-export, etc. |
+
+The three **Critical** fixes should land first — each one either blocks users (mobile login) or throws runtime errors (Rules of Hooks) or causes a full page reload (Admin `<a href>`). The **High** ones are concrete UX/a11y bugs visible in normal usage. The rest is a polish backlog to land before the next release.

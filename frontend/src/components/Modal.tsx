@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { enterSpring, quickSpring } from "../styles/springs";
 import s from "./Modal.module.css";
 
@@ -14,8 +14,19 @@ export interface ModalProps {
 /**
  * Universal glass dialog. Spring-scale entrance mirrors the Flutter modal-sheet
  * presentation; the checkmark/submit pattern lives in the caller.
+ *
+ * Keyboard a11y:
+ *   - Auto-focuses the close button (or first focusable) on open.
+ *   - Traps Tab/Shift+Tab within the dialog.
+ *   - Restores focus to the element that opened the modal on close.
+ *   - Escape key closes the dialog.
  */
 export default function Modal({ open, onClose, title, children, size = "md" }: ModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Track the element that had focus before the modal opened so we can restore it.
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  // Escape key + body scroll lock
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -26,6 +37,47 @@ export default function Modal({ open, onClose, title, children, size = "md" }: M
       document.body.style.overflow = "";
     };
   }, [open, onClose]);
+
+  // Focus-on-open + restore-on-close
+  useEffect(() => {
+    if (open) {
+      triggerRef.current = document.activeElement as HTMLElement;
+      // Wait for AnimatePresence to mount the dialog before querying focusables.
+      requestAnimationFrame(() => {
+        const focusable = dialogRef.current?.querySelector<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        focusable?.focus();
+      });
+    } else {
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
+  // Tab key trap — keep focus inside the dialog
+  useEffect(() => {
+    if (!open) return;
+    const trapTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusables = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapTab);
+    return () => document.removeEventListener("keydown", trapTab);
+  }, [open]);
 
   return (
     <AnimatePresence>
@@ -39,6 +91,7 @@ export default function Modal({ open, onClose, title, children, size = "md" }: M
           onClick={onClose}
         >
           <motion.div
+            ref={dialogRef}
             className={s.dialog}
             data-size={size}
             initial={{ opacity: 0, scale: 0.94, y: 12 }}

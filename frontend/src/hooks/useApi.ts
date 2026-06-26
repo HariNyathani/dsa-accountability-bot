@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import type { DependencyList } from "react";
 
 interface UseApiState<T> {
   data: T | null;
@@ -11,10 +12,14 @@ interface UseApiState<T> {
  * Generic data-fetching hook with loading / error / refetch.
  * Accepts any async function that returns data.
  * Pass `enabled = false` to skip the fetch (e.g. when params are invalid).
+ *
+ * `deps` should contain every value the `fetcher` closure captures that can
+ * change (e.g. `[uid]`, `[period]`). Typed as React's `DependencyList` so
+ * TypeScript rejects accidental `unknown` values at call sites.
  */
 export function useApi<T>(
   fetcher: () => Promise<{ data: T }>,
-  deps: unknown[] = [],
+  deps: DependencyList = [],
   enabled = true,
 ): UseApiState<T> {
   const [data, setData] = useState<T | null>(null);
@@ -24,8 +29,16 @@ export function useApi<T>(
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);
 
+  // Keep a ref to the latest fetcher so the effect body always calls the
+  // freshest closure without needing `fetcher` in the dependency array
+  // (which would change on every render and cause infinite loops).
+  const fetcherRef = useRef(fetcher);
+  useEffect(() => { fetcherRef.current = fetcher; });
+
   useEffect(() => {
     if (!enabled) {
+      setData(null);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -34,7 +47,7 @@ export function useApi<T>(
     setLoading(true);
     setError(null);
 
-    fetcher()
+    fetcherRef.current()
       .then((res) => {
         if (!cancelled) setData(res.data);
       })
@@ -46,8 +59,7 @@ export function useApi<T>(
       });
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, enabled, ...deps]);
+  }, [tick, enabled, ...deps]); // fetcherRef is a stable ref, no eslint-disable needed
 
   return { data, loading, error, refetch };
 }

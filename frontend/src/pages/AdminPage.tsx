@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import GlassCard from "../components/GlassCard";
@@ -69,8 +70,10 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     fetchUsers();
-    api.health().then((r) => setHealthData(r.data)).catch(() => {});
+    api.health().then((r) => { if (!cancelled) setHealthData(r.data); }).catch(() => {});
+    return () => { cancelled = true; };
   }, [fetchUsers]);
 
   const handleSudoLog = async () => {
@@ -176,7 +179,7 @@ export default function AdminPage() {
             <SkeletonRows count={6} />
           ) : (
             <div className={sh.tableWrap}>
-              <table className={sh.table}>
+              <table className={sh.table} aria-label="Registered users">
                 <thead>
                   <tr>
                     <th>User</th>
@@ -192,9 +195,9 @@ export default function AdminPage() {
                   {users.map((u) => (
                     <tr key={u.user_id}>
                       <td>
-                        <a href={`/users/${u.user_id}`} className={sh.username} style={{ color: "var(--link)" }}>
+                        <Link to={`/u/${u.discord_username || u.user_id}`} className={sh.username} style={{ color: "var(--link)" }}>
                           {u.discord_username || "Unknown"}
-                        </a>
+                        </Link>
                       </td>
                       <td style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-secondary)" }}>{u.user_id}</td>
                       <td style={{ fontWeight: 800, color: u.current_streak > 0 ? "var(--diff-easy)" : "var(--text-secondary)" }}>{u.current_streak}</td>

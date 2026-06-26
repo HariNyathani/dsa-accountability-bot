@@ -223,7 +223,7 @@ export default function MyDashboardPage() {
           <div className={sh.title}>📊 Your Weekly Summary History</div>
           {sums.loading ? <SkeletonRows count={5} /> : sums.data && sums.data.summaries.length > 0 ? (
             <div className={sh.tableWrap}>
-              <table className={sh.table}>
+              <table className={sh.table} aria-label="Weekly activity summary">
                 <thead>
                   <tr><th>Week</th><th>Posted</th><th>Missed</th><th>Consistency</th><th>Messages</th></tr>
                 </thead>

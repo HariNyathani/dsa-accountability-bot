@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { api } from "../services/api";
 import { useApi } from "../hooks/useApi";
 import { SkeletonRows } from "../components/Loader";
@@ -56,7 +56,7 @@ export default function LeaderboardPage() {
           <EmptyState icon="🏆" title="No data yet" message="Users need to start posting to appear here." />
         ) : (
           <div className={s.tableWrap}>
-            <table className={s.table}>
+            <table className={s.table} aria-label="Leaderboard rankings">
               <thead>
                 <tr>
                   <th style={{ width: 60 }}>Rank</th>
@@ -70,7 +70,12 @@ export default function LeaderboardPage() {
               </thead>
               <tbody>
                 {data.entries.map((e) => (
-                  <tr key={e.user_id} onClick={() => nav(`/u/${e.username || e.user_id}`)}>
+                  <tr
+                    key={e.user_id}
+                    onClick={() => nav(`/u/${e.username || e.user_id}`)}
+                    tabIndex={0}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") nav(`/u/${e.username || e.user_id}`); }}
+                  >
                     <td>
                       {e.rank <= 3 ? (
                         <span className={s.medal}>{MEDALS[e.rank - 1]}</span>
@@ -78,7 +83,11 @@ export default function LeaderboardPage() {
                         <span className={s.rankNum}>{e.rank}</span>
                       )}
                     </td>
-                    <td className={s.username}>{e.discord_username || `User ${e.user_id}`}</td>
+                    <td>
+                      <Link to={`/u/${e.username || e.user_id}`} className={s.username} onClick={(ev) => ev.stopPropagation()}>
+                        {e.discord_username || `User ${e.user_id}`}
+                      </Link>
+                    </td>
                     <td>
                       <span className={`${s.badge} ${e.current_streak > 0 ? s.badgeActive : s.badgeIdle}`}>
                         {e.current_streak > 0 ? "🔥" : "💤"} {e.current_streak}

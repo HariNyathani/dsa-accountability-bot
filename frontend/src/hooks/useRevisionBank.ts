@@ -26,7 +26,7 @@ export function useRevisionBank() {
   const [topicStats, setTopicStats] = useState<TopicStat[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
   
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDueItems = useCallback(async () => {

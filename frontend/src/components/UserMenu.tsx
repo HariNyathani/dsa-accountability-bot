@@ -14,6 +14,7 @@ const DISCORD_ICON = (
 
 export default function UserMenu() {
   const { user, authenticated, loading, login, logout, isAdmin } = useAuth();
+  const navigate = useNavigate();
 
   if (loading) {
     return (
@@ -37,7 +38,6 @@ export default function UserMenu() {
   }
 
   const initials = user.username.slice(0, 2).toUpperCase();
-  const navigate = useNavigate();
 
   const items: DropdownItem<string>[] = [
     { key: "profile", label: "My Profile", icon: <span>👤</span> },

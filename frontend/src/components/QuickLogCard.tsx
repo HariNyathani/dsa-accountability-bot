@@ -39,7 +39,7 @@ const CONF_LABELS: Record<number, string> = {
 export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => void }) {
   const [mode, setMode] = useState<LogMode>("manual");
   const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; emoji?: string; message: string } | null>(null);
 
   // ── Manual log state ──
   const [intent, setIntent] = useState<"done" | "rest">("done");
@@ -83,7 +83,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
         if (d.msg_type === "skipped") {
           setFeedback({ type: "error", message: "This exact progress was already logged today." });
         } else {
-          setFeedback({ type: "success", message: `✅ Successfully logged ${parseInt(countText) || 1} ${topic} questions!` });
+          setFeedback({ type: "success", emoji: "✅", message: `Successfully logged ${parseInt(countText) || 1} ${topic} questions!` });
           setTopic("");
           setCountText("1");
           setDifficulty("None");
@@ -139,7 +139,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
       const topics = data.topics || [];
       const diffBadge = diff ? ` [${diff}]` : "";
       const topicsStr = topics.length > 0 ? ` (${topics.join(", ")})` : "";
-      setFeedback({ type: "success", message: `✅ Logged: ${title}${diffBadge}${topicsStr}` });
+      setFeedback({ type: "success", emoji: "✅", message: `Logged: ${title}${diffBadge}${topicsStr}` });
       setProblemId("");
       onLogSuccess();
       setTimeout(() => setFeedback(null), 6000);
@@ -175,6 +175,7 @@ export default function QuickLogCard({ onLogSuccess }: { onLogSuccess: () => voi
             exit={{ opacity: 0 }}
             transition={quickSpring}
           >
+            {feedback.emoji && <span aria-hidden="true">{feedback.emoji} </span>}
             {feedback.message}
           </motion.div>
         )}

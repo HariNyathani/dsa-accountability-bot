@@ -30,5 +30,3 @@ export function SkeletonRows({ count = 6 }: { count?: number }) {
     </div>
   );
 }
-
-export { SkeletonCard };

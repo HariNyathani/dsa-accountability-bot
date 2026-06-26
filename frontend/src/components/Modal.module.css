@@ -75,4 +75,5 @@
   padding: 20px 28px 28px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0; /* Required in flex layouts — without this, overflow-y:auto never triggers */
 }

@@ -106,7 +106,7 @@ export default function DashboardPage() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState icon="📚" title="No topic data yet" />
+            <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
           )}
         </GlassCard>
       </div>

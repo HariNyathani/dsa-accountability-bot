@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import GlassCard from "./GlassCard";
 import s from "./Heatmap.module.css";
 
@@ -19,6 +19,8 @@ const levelClass = (count: number) => {
 };
 
 const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentStreak, maxStreak, loading }) => {
+  // Recomputes if the component re-renders past midnight (todayKey changes).
+  const todayKey = new Date().toDateString();
   const { months, weekdays } = useMemo(() => {
     const today = new Date();
     const startDate = new Date();
@@ -46,7 +48,7 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
       group.dates.push(date);
     });
     return { months: monthGroups, weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
-  }, []);
+  }, [todayKey]);
 
   const formatDate = (d: Date) => {
     const y = d.getFullYear();
@@ -54,6 +56,10 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   };
+
+  // Floating tooltip state — event-delegated from the scroll container so we
+  // never create 365 individual event listeners.
+  const [hoverTip, setHoverTip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   if (loading) {
     return (
@@ -78,11 +84,22 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
           </div>
         </div>
 
-        <div className={s.scroll}>
+        {/* Single onMouseMove on the scroll wrapper — reads data-tip from each
+            tile via event delegation so we never create 365+ closures. */}
+        <div
+          className={s.scroll}
+          onMouseMove={(e) => {
+            const el = e.target as HTMLElement;
+            const tip = el.dataset.tip;
+            if (tip) setHoverTip({ text: tip, x: e.clientX, y: e.clientY });
+            else setHoverTip(null);
+          }}
+          onMouseLeave={() => setHoverTip(null)}
+        >
           <div className={s.grid}>
             <div className={s.weekdays}>
               {weekdays.map((day, i) => (
-                <div key={i} className={s.weekday}>{i % 2 === 0 ? day : ""}</div>
+                <div key={i} className={s.weekday}>{i % 2 === 1 ? day : ""}</div>
               ))}
             </div>
             {months.map((month, mIdx) => (
@@ -95,15 +112,13 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
                     const isRest = restDates?.has(dateStr) ?? false;
                     const count = data[dateStr] || 0;
                     const formattedDate = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                    const tooltip = isRest ? `😴 Rest Day · ${formattedDate}` : `${count} question${count === 1 ? "" : "s"} on ${formattedDate}`;
+                    const tipText = isRest ? `😴 Rest Day · ${formattedDate}` : `${count} question${count === 1 ? "" : "s"} on ${formattedDate}`;
                     const tier = isRest ? s.tileRest : levelClass(count);
                     return (
                       <div
                         key={dateStr}
-                        title={tooltip}
+                        data-tip={tipText}
                         className={`${s.tile} ${tier}${(count > 0 || isRest) ? ` ${s.tileActive}` : ""}`}
-                        onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.25)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
                       />
                     );
                   })}
@@ -125,6 +140,19 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
           <span>Rest</span>
         </div>
       </GlassCard>
+
+      {/* Styled floating tooltip — rendered outside the card so it's never
+          clipped by overflow:hidden on the scroll container. position:fixed
+          keeps it anchored to the viewport regardless of page scroll. */}
+      {hoverTip && (
+        <div
+          className={s.floatTip}
+          style={{ left: hoverTip.x + 14, top: hoverTip.y - 44 }}
+          aria-hidden="true"
+        >
+          {hoverTip.text}
+        </div>
+      )}
     </div>
   );
 };
