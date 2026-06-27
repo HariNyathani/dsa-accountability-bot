@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/network/api_client.dart';
 import '../../../../core/storage/secure_storage.dart';
 
 /// Discrete authentication lifecycle states.
@@ -213,7 +214,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = Uri.parse('http://127.0.0.1:8000/auth/login?mobile=true');
+      final url = Uri.parse('${ApiClient.baseUrl}/auth/login?mobile=true');
       await launchUrl(url, mode: LaunchMode.externalApplication);
       _startAuthTimeout();
     } catch (e) {

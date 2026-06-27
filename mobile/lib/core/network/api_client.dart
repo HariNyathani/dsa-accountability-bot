@@ -28,7 +28,7 @@ class ApiClient {
         dio = dio ??
             Dio(
               BaseOptions(
-                baseUrl: _baseUrl,
+                baseUrl: baseUrl,
                 connectTimeout: const Duration(seconds: 15),
                 receiveTimeout: const Duration(seconds: 15),
                 sendTimeout: const Duration(seconds: 15),
@@ -41,7 +41,7 @@ class ApiClient {
     _installInterceptors();
   }
 
-  static const String _baseUrl = 'http://140.245.255.92:8000';
+  static const String baseUrl = 'http://140.245.255.92:8000';
 
   final SecureStorage _storage;
 
