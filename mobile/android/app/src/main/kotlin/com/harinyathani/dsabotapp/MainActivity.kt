@@ -1,4 +1,4 @@
-package com.harinyathani.dsabot
+package com.harinyathani.dsabotapp
 
 import io.flutter.embedding.android.FlutterActivity
 
