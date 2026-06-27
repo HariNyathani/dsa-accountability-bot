@@ -41,7 +41,7 @@ class ApiClient {
     _installInterceptors();
   }
 
-  static const String baseUrl = 'http://140.245.255.92:8000';
+  static const String baseUrl = 'https://dsabot.in';
 
   final SecureStorage _storage;
 
