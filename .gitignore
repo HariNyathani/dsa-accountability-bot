@@ -1,6 +1,11 @@
 # Environment
 .env
 
+# Flutter / Android signing
+*.jks
+*.keystore
+*.properties
+
 # Database
 db/*.db
 db/*.db-journal
