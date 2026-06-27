@@ -35,6 +35,7 @@ from services.ai_service import generate_insights
 from services.progress_service import process_progress_submission
 from utils.time_utils import today_str
 from utils.streak_utils import recalculate_streak
+from scripts.sync_leetcode import sync as sync_leetcode_problems
 
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -214,7 +215,16 @@ def _setup_scheduler():
         replace_existing=True,
     )
 
-    logger.info("Scheduler configured: minutely reminders + weekly summary + 8 AM SRS digest.")
+    # LeetCode Problem Sync — every day at 12:00 PM (default tz)
+    # Fetches new problems added to LeetCode and updates the local database.
+    scheduler.add_job(
+        _run_leetcode_sync,
+        CronTrigger(hour=12, minute=0, timezone=tz),
+        id="leetcode_sync",
+        replace_existing=True,
+    )
+
+    logger.info("Scheduler configured: minutely reminders + weekly summary + 8 AM SRS digest + 12 PM LeetCode Sync.")
 
 
 async def _run_reminders():
@@ -225,6 +235,16 @@ async def _run_weekly_summary():
 
 async def _run_daily_srs():
     await _run_srs_digest(bot)
+
+
+async def _run_leetcode_sync():
+    """Scheduled task to sync LeetCode problems daily at 12 PM."""
+    logger.info("Running scheduled LeetCode problem sync...")
+    try:
+        await sync_leetcode_problems()
+        logger.info("Scheduled LeetCode problem sync completed successfully.")
+    except Exception as e:
+        logger.error("Failed to sync LeetCode problems during scheduled run: %s", e)
 
 
 async def _run_srs_digest(bot: commands.Bot) -> None:
