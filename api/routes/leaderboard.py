@@ -70,6 +70,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
 # ── Default ──────────────────────────────────────────────────────────────────
 
 @cached_route(60)
+@router.get("")
 @router.get(
     "/",
     response_model=APIResponse[LeaderboardResponse],
