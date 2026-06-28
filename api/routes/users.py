@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+import config
 from api.middleware.cache import cached_route
 from api.middleware.cache_headers import public_cache
 from api.middleware.error_handler import NotFoundError
@@ -114,10 +115,29 @@ def _validate_username(username: str) -> tuple[bool, str]:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _get_user_or_404(identifier: str) -> dict:
-    """Smart resolver: numeric Discord ID → get_user, else → get_user_by_username."""
+async def _get_user_or_404(identifier: str, current_user=None) -> dict:
+    """Smart resolver: numeric Discord ID → get_user, else → get_user_by_username.
+
+    When the identifier is a numeric Discord ID and the caller is the
+    authenticated owner, transparently provisions the user in the DB if the
+    row is missing (lazy self-heal). This catches the case where a user
+    completed OAuth login but their `users` row was never written —
+    e.g. they signed in on the mobile app before any DB write path fired.
+    """
     if re.fullmatch(r'\d{17,21}', identifier):
-        user = await database.get_user(int(identifier))
+        uid = int(identifier)
+        user = await database.get_user(uid)
+        if not user and current_user is not None and str(current_user.id) == identifier:
+            try:
+                await database.register_user(
+                    uid,
+                    current_user.username or "",
+                    timezone=config.DEFAULT_TIMEZONE,
+                )
+                logger.info("Lazy self-heal: registered user %s on first /users/{id} hit", uid)
+                user = await database.get_user(uid)
+            except Exception as e:
+                logger.warning("Lazy self-heal register_user failed for %s: %s", uid, e)
     else:
         user = await database.get_user_by_username(identifier)
     if not user:
@@ -225,7 +245,7 @@ async def update_username_route(payload: UsernameUpdateRequest, current_user = D
         raise HTTPException(status_code=400, detail="This username is reserved for system use.")
 
     _verify_owner(payload.user_id, current_user)
-    await _get_user_or_404(payload.user_id)
+    await _get_user_or_404(payload.user_id, current_user)
 
     valid, reason = _validate_username(clean_username)
     if not valid:
@@ -260,7 +280,7 @@ async def _get_user_response(identifier: str, current_user):
     """Uncached implementation of get_user — call this from mutation handlers
     so they always return the freshly-saved profile rather than a stale cached copy."""
     # Public route — no hard auth required. current_user is None for guests.
-    user = await _get_user_or_404(identifier)
+    user = await _get_user_or_404(identifier, current_user)
     user_id_str = str(user["user_id"])
     uid_int = user["user_id"]
 
@@ -304,7 +324,7 @@ async def _get_user_response(identifier: str, current_user):
 )
 async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    resolved = await _get_user_or_404(user_id)
+    resolved = await _get_user_or_404(user_id, current_user)
     uid_int = resolved["user_id"]
     await database.update_user_email(uid_int, payload.email)
     return await _get_user_response(user_id, current_user)
@@ -318,7 +338,7 @@ async def update_user_email_route(user_id: str, payload: EmailUpdateRequest, cur
 )
 async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateRequest, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    resolved = await _get_user_or_404(user_id)
+    resolved = await _get_user_or_404(user_id, current_user)
     uid_int = resolved["user_id"]
     import asyncio
     def _update():
@@ -629,7 +649,7 @@ async def get_user_difficulty(user_id: str):
 )
 async def export_user_data(user_id: str, current_user = Depends(get_current_user)):
     _verify_owner(user_id, current_user)
-    resolved = await _get_user_or_404(user_id)
+    resolved = await _get_user_or_404(user_id, current_user)
     uid_int = resolved["user_id"]
     
     from services.export_service import export_progress_csv

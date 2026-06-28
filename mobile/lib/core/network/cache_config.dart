@@ -24,8 +24,8 @@ import 'package:path_provider/path_provider.dart';
 class CacheConfig {
   CacheConfig._();
 
-  static const String _hiveBoxName = 'dsabot_http_cache';
-  static const String _cacheDirName = 'dsabot_http_cache';
+  static const String _hiveBoxName = 'dsabot_http_cache_v2';
+  static const String _cacheDirName = 'dsabot_http_cache_v2';
 
   static CacheStore? _store;
 

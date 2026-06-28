@@ -108,15 +108,30 @@ async def callback(code: str, request: Request):
 
         discord_user = user_resp.json()
 
-    # Ensure user is registered in the database on login
-    from db.database import ensure_user
-    await ensure_user(int(discord_user["id"]), discord_user.get("username", ""))
-
     logger.info(
         "OAuth login successful: %s (%s)",
         discord_user.get("username"),
         discord_user.get("id"),
     )
+
+    # 2.5. Provision the user in the database (idempotent).
+    # Without this step, an authenticated user has a valid JWT but no
+    # `users` row, so GET /users/{id} returns 404 and the mobile app
+    # shows an empty profile. register_user is safe to call on every
+    # login — it sets is_active=1, refreshes discord_username, and
+    # creates user_settings + streaks rows.
+    try:
+        from db import database
+        await database.register_user(
+            int(discord_user["id"]),
+            discord_user.get("username", ""),
+            timezone=config.DEFAULT_TIMEZONE,
+        )
+        logger.info("User provisioned: %s", discord_user.get("id"))
+    except Exception as e:
+        logger.warning("register_user failed for %s: %s",
+                       discord_user.get("id"), e)
+        # Auth still proceeds; the lazy self-heal in /users/{id} will retry.
 
     # 3. Create JWT session token
     session_token = create_session_token(discord_user)
@@ -195,15 +210,27 @@ async def mobile_callback(code: str):
 
         discord_user = user_resp.json()
 
-    # Ensure user is registered in the database on login
-    from db.database import ensure_user
-    await ensure_user(int(discord_user["id"]), discord_user.get("username", ""))
-
     logger.info(
         "OAuth login successful (mobile): %s (%s)",
         discord_user.get("username"),
         discord_user.get("id"),
     )
+
+    # 2.5. Provision the user in the database (idempotent). See callback()
+    # for the rationale — without this, the mobile app receives a valid
+    # JWT but GET /users/{id} returns 404 because the `users` row is
+    # never created by the OAuth flow itself.
+    try:
+        from db import database
+        await database.register_user(
+            int(discord_user["id"]),
+            discord_user.get("username", ""),
+            timezone=config.DEFAULT_TIMEZONE,
+        )
+        logger.info("User provisioned (mobile): %s", discord_user.get("id"))
+    except Exception as e:
+        logger.warning("register_user failed (mobile) for %s: %s",
+                       discord_user.get("id"), e)
 
     # 3. Create JWT session token
     session_token = create_session_token(discord_user)
