@@ -71,7 +71,7 @@ async def _build_leaderboard(sort_by: str, limit: int = 25) -> LeaderboardRespon
 
 @cached_route(60)
 @router.get(
-    "",
+    "/",
     response_model=APIResponse[LeaderboardResponse],
     summary="Get leaderboard",
     description="Returns the leaderboard sorted by the specified criterion. "
