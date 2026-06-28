@@ -94,11 +94,18 @@ export default function DashboardPage() {
           <div className={s.title}>📚 Topic Distribution</div>
           {topics.loading ? (
             <SkeletonCard />
-          ) : topics.data && topics.data.top_topics.length > 0 ? (
+          ) : topics.data && topics.data.top_topics.length > 0 ? (() => {
+              const top8 = topics.data!.top_topics.slice(0, 8);
+              const top8Sum = top8.reduce((s, f) => s + f.count, 0);
+              const otherCount = (topics.data!.total_mentions ?? 0) - top8Sum;
+              const pieData = otherCount > 0
+                ? [...top8, { topic: `Other (${topics.data!.top_topics.length - 8})`, count: otherCount }]
+                : top8;
+              return (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
-                  data={topics.data.top_topics}
+                  data={pieData}
                   dataKey="count"
                   nameKey="topic"
                   cx="50%"
@@ -110,13 +117,15 @@ export default function DashboardPage() {
                     `${topic} ${(percent * 100).toFixed(0)}%`}
                   labelLine={{ stroke: "var(--border-strong)" }}
                 >
-                  {topics.data.top_topics.map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#9E9E9E"} />
                   ))}
                 </Pie>
                 <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
               </PieChart>
             </ResponsiveContainer>
+              );
+            })()
           ) : (
             <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
           )}
