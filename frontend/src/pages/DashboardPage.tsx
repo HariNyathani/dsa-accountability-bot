@@ -30,6 +30,15 @@ export default function DashboardPage() {
   const o = overview.data;
   const showOverviewError = overview.error && !o;
 
+  // Compute topic pie data with a true-total "Other" bucket
+  const _topicsRaw = topics.data?.top_topics ?? [];
+  const _top8 = _topicsRaw.slice(0, 8);
+  const _top8Sum = _top8.reduce((s, f) => s + f.count, 0);
+  const _topicsOther = (topics.data?.total_mentions ?? 0) - _top8Sum;
+  const topicPieData = _topicsOther > 0
+    ? [..._top8, { topic: `Other (${_topicsRaw.length - 8})`, count: _topicsOther }]
+    : _top8;
+
   return (
     <>
       <PageHeader
@@ -94,18 +103,11 @@ export default function DashboardPage() {
           <div className={s.title}>📚 Topic Distribution</div>
           {topics.loading ? (
             <SkeletonCard />
-          ) : topics.data && topics.data.top_topics.length > 0 ? (() => {
-              const top8 = topics.data!.top_topics.slice(0, 8);
-              const top8Sum = top8.reduce((s, f) => s + f.count, 0);
-              const otherCount = (topics.data!.total_mentions ?? 0) - top8Sum;
-              const pieData = otherCount > 0
-                ? [...top8, { topic: `Other (${topics.data!.top_topics.length - 8})`, count: otherCount }]
-                : top8;
-              return (
+          ) : topicPieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
-                  data={pieData}
+                  data={topicPieData}
                   dataKey="count"
                   nameKey="topic"
                   cx="50%"
@@ -117,15 +119,13 @@ export default function DashboardPage() {
                     `${topic} ${(percent * 100).toFixed(0)}%`}
                   labelLine={{ stroke: "var(--border-strong)" }}
                 >
-                  {pieData.map((_, i) => (
+                  {topicPieData.map((_, i) => (
                     <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#9E9E9E"} />
                   ))}
                 </Pie>
                 <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
               </PieChart>
             </ResponsiveContainer>
-              );
-            })()
           ) : (
             <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
           )}
