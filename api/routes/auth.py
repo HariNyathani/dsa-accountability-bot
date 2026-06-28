@@ -108,6 +108,10 @@ async def callback(code: str, request: Request):
 
         discord_user = user_resp.json()
 
+    # Ensure user is registered in the database on login
+    from db.database import ensure_user
+    await ensure_user(int(discord_user["id"]), discord_user.get("username", ""))
+
     logger.info(
         "OAuth login successful: %s (%s)",
         discord_user.get("username"),
@@ -190,6 +194,10 @@ async def mobile_callback(code: str):
             )
 
         discord_user = user_resp.json()
+
+    # Ensure user is registered in the database on login
+    from db.database import ensure_user
+    await ensure_user(int(discord_user["id"]), discord_user.get("username", ""))
 
     logger.info(
         "OAuth login successful (mobile): %s (%s)",
