@@ -1,5 +1,6 @@
-/* Button — variants: primary (espresso CTA), ghost (glass), danger.
-   Primary uses --cta-gradient (log_progress_sheet.dart:1230-1238). */
+/* Button — variants: primary (molten metal CTA), ghost (glass), outline, danger.
+   Primary uses --cta-gradient; every variant gets tactile press physics and
+   the primary carries a specular sheen sweep on hover. */
 
 .btn {
   position: relative;
@@ -8,15 +9,21 @@
   justify-content: center;
   gap: 10px;
   border-radius: var(--radius-button);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.95rem;
   letter-spacing: 0.01em;
   padding: 14px 24px;
   border: none;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.25s ease, opacity 0.2s ease,
-    filter 0.2s ease;
+  transition: transform 0.28s var(--ease-spring), box-shadow 0.3s var(--ease-out),
+    opacity 0.2s ease, filter 0.2s ease, border-color 0.25s ease, background 0.25s ease,
+    color 0.25s ease;
   overflow: hidden;
+  isolation: isolate;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
 }
 
 .btn:disabled {
@@ -24,22 +31,43 @@
   opacity: 0.45;
 }
 
-/* ── Primary (Deep Chestnut Espresso CTA gradient) ────────────────────────── */
+/* ── Primary (molten metal CTA) ──────────────────────────────────────────── */
 .primary {
   background: var(--cta-gradient);
   color: var(--on-accent);
-  box-shadow: 0 8px 20px rgba(122, 82, 52, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow: var(--cta-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+/* Specular sheen that sweeps across on hover */
+.primary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent
+  );
+  transform: translateX(-120%) skewX(-18deg);
+  pointer-events: none;
 }
 
 .primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(122, 82, 52, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  filter: brightness(1.05);
+  filter: brightness(1.04) saturate(1.05);
+}
+
+.primary:hover:not(:disabled)::after {
+  animation: sheen-sweep 0.8s var(--ease-out);
 }
 
 .primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 4px 10px rgba(122, 82, 52, 0.2);
+  filter: brightness(0.97);
 }
 
 /* ── Ghost (glass) ───────────────────────────────────────────────────────── */
@@ -48,12 +76,14 @@
   border: var(--glass-border);
   color: var(--text-primary);
   box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
 }
 
 .ghost:hover:not(:disabled) {
   transform: translateY(-2px);
-  border-color: var(--border-strong);
-  filter: brightness(1.08);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  box-shadow: var(--glass-shadow-hover);
 }
 
 /* ── Outline (subtle, for secondary actions) ─────────────────────────────── */
@@ -66,11 +96,12 @@
 .outline:hover:not(:disabled) {
   color: var(--text-primary);
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* ── Danger ──────────────────────────────────────────────────────────────── */
 .danger {
-  background: color-mix(in srgb, var(--error) 14%, transparent);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
   color: var(--error);
 }
@@ -79,6 +110,7 @@
   background: var(--error);
   color: var(--on-error);
   transform: translateY(-2px);
+  box-shadow: 0 10px 24px -8px color-mix(in srgb, var(--error) 60%, transparent);
 }
 
 /* ── Sizes ──────────────────────────────────────────────────────────────── */
@@ -97,7 +129,7 @@
   width: 100%;
 }
 
-/* ── Submit state machine (log_progress_sheet.dart:1214-1304) ────────────── */
+/* ── Submit state machine ─────────────────────────────────────────────────── */
 .phase {
   display: inline-flex;
   align-items: center;
@@ -108,7 +140,7 @@
 .spinner {
   width: 16px;
   height: 16px;
-  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  border: 2.5px solid color-mix(in srgb, currentColor 25%, transparent);
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;

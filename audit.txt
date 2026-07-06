@@ -1,286 +1,873 @@
-# Frontend Audit Report — Post-Redesign Diagnosis
+========================================================================
+  CONSOLIDATED STATIC ANALYSIS AUDIT REPORT
+========================================================================
 
-**Date:** Fri Jun 26 2026
-**Auditor:** opencode (minimax-m3)
-**Scope:** `frontend/src/` — React 19 + TS 5.8 + Vite 6.4
-**Build:** `tsc --noEmit` ✅ | `vite build` ✅ → 925 KB JS (260 KB gzip) across **5 chunks** (react 49 KB, motion 130 KB, recharts 421 KB, index 276 KB, CSS 49 KB). No Vite warning at `chunkSizeWarningLimit: 600`.
+  Generated: 2026-07-04 16:48:20 UTC
+  Tools:     Bandit v1.9.4, Semgrep v1.168.0 (OSS)
+  Target:    DSA Accountability Bot — Python backend
+  Scope:     All .py files (excluding venvs, frontend, mobile)
 
----
+------------------------------------------------------------------------
+  SUMMARY
+------------------------------------------------------------------------
 
-## Executive Summary
+  Total unique findings:   53
+    ■ HIGH severity:       5
+    ■ MEDIUM severity:     6
+    ■ LOW severity:        42
 
-The redesign landed most of the critical and high-severity fixes from the prior audit. The Rules-of-Hooks violation, the `<a href>` full-reload in Admin, the Leaderboard `<tr onClick>` anti-pattern, the Dropdown `display: contents` positioning bug, the stale 365-day Heatmap, the manualChunks warning, and the duplicate `Skeleton`/`Loader` exports are all genuinely resolved. **The app is now buildable, type-clean, and most user-visible regressions are gone.**
+  Raw findings before deduplication:
+    • Bandit:              80 issues
+    • Semgrep:             7 issues
+    • Duplicates removed:  34
 
-However, the mobile-login fix is **incomplete** (ThemeSwitcher is still sidebar-only on mobile), three prior bugs are **not fixed** (AdminPage `<Select>` value mismatch, `useRevisionBank` ↔ `useApi` inconsistency, Dropdown listbox arrow-key nav), and the redesign introduced **a new crop of bugs** — most importantly: no `ErrorBoundary` (any render error blanks the app), no skip-to-content link, duplicate `<UserMenu/>` mount on mobile, Modal `onClose` instability causing body-overflow flicker, and the RevisionBank row click pattern repeating the same Leaderboard anti-pattern that was just fixed elsewhere.
+------------------------------------------------------------------------
+  ISSUE CATEGORIES
+------------------------------------------------------------------------
 
-**Confidence in the fixes:** high. **Confidence in the codebase being production-ready:** medium — the new issues are individually small but collectively represent ~20 outstanding defects across 8 categories.
+    • Assert in Non-Test Code: 34
+    • Silent Exception Handling (try/except/pass): 6
+    • SQL Injection / Raw Query Construction: 5
+    • Credential / Secret Exposure: 4
+    • Network Binding (0.0.0.0): 4
 
----
+------------------------------------------------------------------------
+  AFFECTED FILES
+------------------------------------------------------------------------
 
-## Previously Reported Bugs — Fix Verification
+    tests/test_api.py: 22 finding(s)
+    tests/test_topic_extractor.py: 8 finding(s)
+    db/database.py: 5 finding(s)
+    tests/test_time_utils.py: 4 finding(s)
+    api/routes/auth.py: 3 finding(s)
+    main.py: 3 finding(s)
+    services/ai_service.py: 2 finding(s)
+    api/routes/health.py: 1 finding(s)
+    api/routes/users.py: 1 finding(s)
+    bot.py: 1 finding(s)
+    config.py: 1 finding(s)
+    handlers/message_handler.py: 1 finding(s)
+    handlers/summary_handler.py: 1 finding(s)
 
-| # | Title | Status | Evidence |
-|---|---|---|---|
-| 1 | UserMenu `useNavigate` after early return | ✅ FIXED | `UserMenu.tsx:17` — `useNavigate()` hoisted above the two early returns on lines 19 and 29. |
-| 2 | Login UI unreachable on mobile | ⚠️ PARTIALLY FIXED | `Layout.tsx:136-138` adds `<div className={s.mobileAuth}><UserMenu/></div>` visible at `max-width:900px`. **But `<ThemeSwitcher/>` is still only in the sidebar** (line 99), so mobile users can log in but cannot toggle theme. See NEW-1. |
-| 3 | Admin users table raw `<a href>` | ✅ FIXED | `AdminPage.tsx:198` now uses `<Link to={`/u/${u.discord_username \|\| u.user_id}`}>`. |
-| 4 | Leaderboard `<tr onClick>` not keyboard accessible | ✅ FIXED | `LeaderboardPage.tsx:73-78` — `tr` has `tabIndex={0}` + `onKeyDown` for Enter/Space, and the username cell uses `<Link>` (line 87). |
-| 5 | UserMenu / Dropdown custom trigger not keyboard operable | ✅ FIXED | `Dropdown.tsx:109-126` — custom trigger has `role="button"`, `tabIndex={0}`, `onKeyDown` for Enter/Space, and `style={{ display: "block", width: "100%" }}` (no more `display: contents`). |
-| 6 | `useRevisionBank` initial `loading=false` flash | ✅ FIXED | `useRevisionBank.ts:29` — `useState<boolean>(true)`. |
-| 7 | `Skeleton` / `Loader` duplicate exports | ✅ FIXED | `Skeleton.tsx` now exports only `Skeleton` (line 5) and `SkeletonCard` (line 10). `Loader.tsx` composes the grid/row variants. Dead `SkeletonCards`/`SkeletonRows` exports from Skeleton.tsx are gone. |
-| 8 | `useApi` `deps: unknown[]` | ✅ FIXED | `useApi.ts:2` imports `DependencyList`; line 22 uses it as the type. |
-| 9 | Vite 877 KB single chunk | ✅ FIXED | `vite.config.ts:27-37` — `manualChunks` splits into `react`, `motion`, `recharts`, app. `chunkSizeWarningLimit: 600` silences the warning. Build emits 5 chunks (49+130+421+276 KB JS, 49 KB CSS). |
-| 10 | `AdminPage` async effects no `cancelled` flag | ✅ FIXED | `AdminPage.tsx:72-77` — effect sets `let cancelled = false` and returns cleanup `() => { cancelled = true; }`. The health fetch on line 75 checks `cancelled` before calling `setHealthData`. |
-| 11 | `useApi` `eslint-disable` for exhaustive-deps | ✅ FIXED | `useApi.ts:35-36, 62` — `fetcherRef` pattern; comment on line 62 confirms "no eslint-disable needed". The only remaining eslint-disable in the codebase is in `ThemeContext.tsx:92` (cosmetic). |
-| 12 | Heatmap stale 365-day range + 730 inline handlers | ✅ FIXED | `Heatmap.tsx:23-51` — `todayKey = new Date().toDateString()` is in the `useMemo` deps, so the range re-anchors past midnight. Lines 89-97 use event delegation on a single `onMouseMove` instead of 365 individual `onMouseEnter`/`onMouseLeave` closures. |
-| 13 | Dropdown panel positioning broken under `display: contents` | ✅ FIXED | `Dropdown.tsx:122` — custom trigger wrapper uses `display: "block"; width: "100%"`. The `.field` ancestor has `position: relative` (`Dropdown.module.css:7`), so the panel's `min-width: 100%` anchors correctly. |
-| 14 | `<Select>` chevron hardcoded grey in light theme | ✅ FIXED | `Field.module.css:58-60` adds `:global([data-theme="light"]) .select { background-image: url(...stroke='%23706a60'...) }` overriding the dark-mode `#9e9e9e` stroke. |
-| 15 | `useApi` initial `data=null` + `loading=true` short-circuit flash | ⚠️ PARTIALLY FIXED | `useApi.ts:39-44` now clears `data` and `error` and sets `loading` to `false` when `enabled === false`. The page-level `if (overview.error) return <ErrorState />` short-circuit on `AnalyticsPage.tsx:32` (and similar in Dashboard, MyDashboard, UserProfile) is still present and still hides partial data on mid-refetch error. |
-| 16 | `Field` label implicit wrapping | ✅ FIXED | `Field.tsx:15, 32, 50` — all three components use `useId()` + `<label htmlFor={id}>` + `<input/select/textarea id={id}>`. |
-| 17 | `QuickLogCard` feedback emojis in announced text | ✅ FIXED | `QuickLogCard.tsx:178` — `{feedback.emoji && <span aria-hidden="true">{feedback.emoji} </span>}` wraps the emoji in `aria-hidden`. The string `message` no longer contains the emoji character. |
-| 18 | `AdminPage` `<Select value={sudoUserId}>` no matching option | ❌ STILL PRESENT | `AdminPage.tsx:241-248`, `293-303`, `328-335` — the three Selects (`sudoUserId`, `restUserId`, `undoUserId`) still have no hidden fallback `<option>` and do not reset their state when `users` changes. If a selected user is removed from the list, React logs "value but no matching option" warnings. |
-| 19 | `Layout` `activeKey` resolves to `""` on profile/admin | ✅ FIXED | `Layout.tsx:65-72` — falls back to `"/"` when `pathname` starts with `/u/`, `/users/`, or equals `/admin`. The Dashboard pill now stays lit on profile pages. |
-| 20 | `useApi` enabled flip doesn't clear data | ✅ FIXED | `useApi.ts:39-44` — `if (!enabled) { setData(null); setError(null); setLoading(false); return; }`. |
-| 21 | Heatmap weekday labels `i % 2 === 0` (Sun/Tue/Thu/Sat) | ✅ FIXED | `Heatmap.tsx:102` — now `i % 2 === 1 ? day : ""`, rendering Mon/Wed/Fri (GitHub style). |
-| 22 | `Layout` `<UserMenu />` only in sidebar for unauth | ⚠️ PARTIALLY FIXED | Same as bug #2 — login button is now reachable on mobile via `.mobileAuth`, but the ThemeSwitcher is not. |
-| 23 | Vite proxy `/api` rewrite | ⚠️ COULD NOT VERIFY | `vite.config.ts:13-22` and `api.ts:7` (`BASE = import.meta.env.VITE_API_BASE_URL ?? "/api"`) are consistent. Requires a live dev server + backend smoke-test to confirm end-to-end. |
-| 24 | `tokens.css` `--heat-0` light invisible | ⚠️ PARTIALLY FIXED | `tokens.css:57` — bumped from `0.1` to `0.18` with comment "bumped from 0.1 — 10% is invisible". On `#F2E2DE` Alabaster background, `rgba(122,82,52,0.18)` is still barely perceptible. See NEW-18. |
-| 25 | `<table>` lacks `caption` / `aria-label` | ✅ FIXED | All four tables now have `aria-label`: `LeaderboardPage.tsx:59` ("Leaderboard rankings"), `AdminPage.tsx:182` ("Registered users"), `MyDashboardPage.tsx:226` ("Weekly activity summary"), `UserProfilePage.tsx:277` ("Weekly activity summary"). |
-| 26 | `Modal` body no focus trap | ✅ FIXED | `Modal.tsx:42-55` focuses the first focusable element on open and restores focus to `triggerRef.current` on close. `Modal.tsx:58-80` implements a Tab/Shift+Tab trap. `role="dialog"` and `aria-modal="true"` are set on lines 102-103. |
-| 27 | `EmptyState` `message` optional | ✅ FIXED | `EmptyState.tsx:6` — `message: string` (no longer `string \| undefined`). |
-| 28 | `useRevisionBank` ↔ `useApi` inconsistency | ❌ STILL PRESENT | `useRevisionBank.ts` still manages its own state (no `refetch`, no `AbortController`, no cancellation, different error shape `{ loading, error, ... }` vs `useApi`'s `{ data, loading, error, refetch }`). The page (`RevisionBankPage.tsx`) calls `fetchDueItems` twice in a row from `handleReview` (line 100-101) because the hook doesn't expose a clean refetch. See NEW-6, NEW-19. |
-| 29 | `Heatmap` tooltip via native `title` | ✅ FIXED | `Heatmap.tsx:147-155` — custom `floatTip` (`position: fixed`, `z-index: 9999`) with event-delegated `onMouseMove`. The native `title` attribute is gone. |
-| 30 | `Dropdown` listbox arrow-key nav | ❌ STILL PRESENT | `Dropdown.tsx` — `Esc` and click-outside work; arrow keys do nothing; no `aria-activedescendant` on the trigger. Same as the prior audit. |
-| 31 | `<Dsalogo.png>` missing `width`/`height` | ✅ FIXED | `Layout.tsx:78` — `<img src="/Dsalogo.png" alt="DSA Tracker" width="52" height="52" />`. |
-| 32 | `charts.ts` `TOKEN()` helper dead code | ✅ FIXED | `charts.ts:1-67` — no `TOKEN()` helper; only `tooltipStyle`, `tooltipItemStyle`, `tooltipLabelStyle`, `axisTick`, `axisTickBold`, `gridProps`, `PALETTE`, `ACCENT`, `ACCENT_SOFT`, `areaGradientId`, `consistencyColor`. `ACCENT_SOFT` is exported but not imported anywhere (minor dead export). |
-| 33 | `Loader.tsx` re-exports `SkeletonCard` twice | ⚠️ PARTIALLY FIXED | `Loader.tsx:22` re-exports `SkeletonCard as SkeletonChart` (one re-export now, not two). The prior `export { SkeletonCard };` duplicate is gone. However, `SkeletonChart` as a name is still a pointless alias for `SkeletonCard` — see NEW-26. |
-| 34 | `EmptyState` default icon `📭` | ❌ STILL PRESENT | `EmptyState.tsx:10` — default icon is still `"📭"`. The audit flagged this as low-priority UX polish; it was not addressed. |
-| 35 | `Modal` `body` missing `min-height: 0` | ✅ FIXED | `Modal.module.css:79` — `.body { min-height: 0; }` is present (with a comment explaining why it's required in flex layouts). |
-| 36 | `Field` touch targets < 16px iOS HIG | ✅ FIXED | `Field.module.css:27` — `font-size: 1rem; /* Must be ≥16px / 1rem to prevent iOS Safari auto-zoom on focus */`. `padding: 12px 16px` gives ~44px total touch target. |
-| 37 | `tokens.css` `--border` `color-mix` browser support | ⚠️ COULD NOT VERIFY | `tokens.css` uses `color-mix(in srgb, ...)` extensively (~30+ usages). Requires Chrome 111+, Safari 16.2+, Firefox 113+. No `.browserslist` config in `package.json` to declare the minimum. Requires live browser matrix testing to confirm acceptable degradation. |
 
-**Summary of prior 37:** 23 ✅ FIXED · 8 ⚠️ PARTIALLY FIXED · 4 ❌ STILL PRESENT · 2 ⚠️ COULD NOT VERIFY.
+========================================================================
+  HIGH SEVERITY  (5 findings)
+========================================================================
 
----
+  ── [1] SQL Injection / Raw Query Construction ──
 
-## New Bugs Found
+      Description:  Avoiding SQL string concatenation: untrusted input concatenated with raw SQL query can result in SQL Injection. In order to execute raw query safely, prepared statement should be used. SQLAlchemy prov
+      CWE:          CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')
+      Tool(s):      Semgrep
+      Rule(s):      python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+      Confidence:   Low
 
-### NEW-1 — 🟠 High — Mobile cannot switch theme (regression of original bug #2)
-**File:** `src/components/Layout.tsx:99, 136-138`, `src/components/Layout.module.css:186-200`
-The mobile-auth fix from the prior audit only added `<UserMenu/>` to the mobile auth strip. `<ThemeSwitcher/>` remains mounted only inside the sidebar (line 99), which is `display: none` at `max-width: 900px` (`Layout.module.css:171`). The mobile media query (lines 190-200) only reveals the `.mobileAuth` div — it does not duplicate the theme switcher. Result: a mobile user can log in, but cannot toggle light/dark/system.
-**Recommended fix:** render a compact `<ThemeSwitcher compact />` inside `.mobileAuth` (it already accepts a `compact` prop at `ThemeSwitcher.tsx:16`).
+      Locations (5):
+        → db/database.py:283
+        → db/database.py:514
+        → db/database.py:668
+        → db/database.py:1073
+        → db/database.py:1201
 
-### NEW-2 — 🟡 Medium — Duplicate `<UserMenu/>` mount on mobile
-**File:** `src/components/Layout.tsx:103, 137`
-On every page render, `<UserMenu/>` is mounted **twice**: once in the sidebar (line 103, `display: none` on mobile but still in the React tree) and once in `.mobileAuth` (line 137, only `display: block` on mobile). Each instance maintains its own `Dropdown` state, so opening the menu in the mobile chip while the sidebar instance is also mounted means two popovers, two focus traps, and two `useEffect` subscriptions to the same `useAuth()` context. Wasteful, and a future contributor who adds a global keyboard shortcut will accidentally wire it to both.
-**Recommended fix:** conditionally render only the relevant instance based on a viewport media query, or use a single shared `<UserMenu/>` mounted at the layout root with a CSS-only swap of which container is visible.
 
-### NEW-3 — 🟡 Medium — `Modal` body-overflow flicker on parent re-render
-**File:** `src/components/Modal.tsx:30-39`, called from `src/pages/RevisionBankPage.tsx:220`
-The `useEffect` that locks `document.body.style.overflow` and binds the `Esc` handler has `[open, onClose]` as its dep array. `RevisionBankPage.tsx:220` passes `onClose={() => setSelectedProblem(null)}` — a new function on every render. Each parent re-render while the modal is open: cleanup fires (sets `body.style.overflow = ""`), then the effect re-fires (sets it back to `"hidden"`), causing a single-frame body-scroll flicker. Also: the `Esc` listener is detached and re-attached on every render.
-**Recommended fix:** in `RevisionBankPage.tsx`, wrap with `useCallback`:
-```ts
-const handleCloseModal = useCallback(() => setSelectedProblem(null), []);
-// <Modal onClose={handleCloseModal} ... />
-```
+========================================================================
+  MEDIUM SEVERITY  (6 findings)
+========================================================================
 
-### NEW-4 — 🟡 Medium — `AdminPage` `<Select>` controls have no `label` prop
-**File:** `src/pages/AdminPage.tsx:241, 265, 294, 328`
-The `Select` component from `Field.tsx` is used for `sudoUserId`, `sudoDiff`, `restUserId`, and `undoUserId` — none pass a `label` prop. The `Field.tsx:34` only renders a `<span className={s.label}>{label}</span>` if `label` is truthy, so the user sees a bare `<select>` with no visible label and no `htmlFor` association. Screen readers will not announce a name. The same form is rendered with the section title (`⚡ Sudo-Log — Insert Progress Entry`) as the only contextual label, which is not associated.
-**Recommended fix:** pass `label="Target user"` / `label="Difficulty"` etc. to each `<Select>`.
+  ── [2] Credential / Secret Exposure ──
 
-### NEW-5 — 🟡 Medium — `RevisionBankPage` `<div onClick>` row not keyboard accessible
-**File:** `src/pages/RevisionBankPage.tsx:35-71` (line 44 specifically)
-The `ProblemRow` component renders `<div className={s.row} onClick={() => onOpen(item)}>`. This is the **same anti-pattern that the prior audit flagged and fixed in `LeaderboardPage.tsx:73`**: non-button element with click handler, not focusable, not announced as interactive, not reachable by Tab. Keyboard-only and screen-reader users cannot open the modal. The audit fixed this in one place; the codebase has at least one other copy of the same bug.
-**Recommended fix:** add `role="button"`, `tabIndex={0}`, and `onKeyDown` for Enter/Space — or convert to a real `<button>`.
+      Description:  Detected a python logger call with a potential hardcoded secret "Discord token exchange failed: %s" being logged. This may lead to secret credentials being exposed. Make sure that the logger is not lo
+      CWE:          CWE-532: Insertion of Sensitive Information into Log File
+      Tool(s):      Semgrep
+      Rule(s):      python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+      Confidence:   Medium
 
-### NEW-6 — 🟡 Medium — `submitReview` triggers 2× `fetchDueItems`
-**File:** `src/hooks/useRevisionBank.ts:66-78`, `src/pages/RevisionBankPage.tsx:97-102`
-`useRevisionBank.submitReview` (line 72) calls `await fetchDueItems()` internally after a successful review. Then `RevisionBankPage.handleReview` (line 100-101) calls `await fetchPagedHistory(1, limit)` and `await fetchDueItems()` again. Net: one user review → 3 API calls (`submitRevisionReview` + `fetchDueItems` × 2). The second `fetchDueItems` overwrites the first; the first is wasted bandwidth and a race against the second.
-**Recommended fix:** remove the `fetchDueItems` call from `useRevisionBank.submitReview` and let the caller orchestrate the refresh sequence.
+      Locations (2):
+        → api/routes/auth.py:89
+        → api/routes/auth.py:191
 
-### NEW-7 — 🟡 Medium — Heatmap data is invisible to screen readers
-**File:** `src/components/Heatmap.tsx:147-155`
-The floating tooltip is wrapped in `aria-hidden="true"` (line 151) — correct, since it's a visual-only element. But there is **no alternative accessible representation** of the 365-day data. The tile `<div>`s have no `role`, no `tabIndex`, no `aria-label`. A screen-reader user navigating the Heatmap card gets no information about which days have activity, what the streak is (the visual "Active Days: N" stat on line 81 is visible but the per-day data is not exposed). WCAG 1.1.1 (Non-text Content) is violated for this data visualization.
-**Recommended fix:** add an off-screen `<table>` (visually hidden, `class="sr-only"` from `base.css:106-116`) summarizing the heatmap data, or add `aria-label` to each tile with the date + count.
 
-### NEW-8 — 🟡 Medium — `MyDashboardPage` fires 6 parallel API calls on mount
-**File:** `src/pages/MyDashboardPage.tsx:37-42`
-Six `useApi` hooks (`userInfo`, `aggregate`, `sums`, `remind`, `activity`, `heatmap`) all start with `loading: true` and all fire their fetches simultaneously on mount. The backend (FastAPI on localhost:8000 / Render) receives 6 concurrent requests from the same authenticated user. Same pattern in `UserProfilePage.tsx:33-37` (5 calls).
-**Recommended fix:** add a shared `dashboardAggregate` endpoint (one round-trip), or stagger the calls with a short delay / `requestIdleCallback`.
+  ── [3] Network Binding (0.0.0.0) ──
 
-### NEW-9 — 🟡 Medium — `useApi` does not abort in-flight `fetch` on dep change
-**File:** `src/hooks/useApi.ts:38-62`
-The `cancelled` flag (line 46) prevents the `.then` callback from calling `setData` on an unmounted/stale component, but the underlying `fetch` request continues to completion. On a rapidly-changing dep (e.g., `period` toggling in `AnalyticsPage.tsx:30`), 4-5 parallel in-flight requests can be active simultaneously, all hitting the same endpoint. The browser limits concurrent requests to the same origin (6 per Chrome), so this can cause queueing.
-**Recommended fix:** pass an `AbortController` signal into the fetcher:
-```ts
-const ctl = new AbortController();
-fetcherRef.current({ signal: ctl.signal })...
-return () => { cancelled = true; ctl.abort(); };
-```
-(Requires the fetcher closures to accept and forward the signal.)
+      Description:  Possible binding to all interfaces.
+      CWE:          CWE-605
+      Tool(s):      Bandit
+      Rule(s):      B104:hardcoded_bind_all_interfaces
+      Confidence:   Medium
 
-### NEW-10 — 🟡 Medium — No React `ErrorBoundary` anywhere
-**Files:** `src/App.tsx`, `src/main.tsx`, `src/components/*.tsx`
-A search for `ErrorBoundary` / `componentDidCatch` returned zero matches. An unhandled render error in any page (e.g., a malformed `aggregate.data` from the backend, a Recharts crash on a new chart type) will unmount the entire React tree and show a blank page. The Vite dev server would show an overlay, but in production the user sees nothing.
-**Recommended fix:** add a minimal `ErrorBoundary` class component, mount it around `<Outlet />` in `Layout.tsx` (line 116-120), and render a glass-styled "Something went wrong — reload" card on `componentDidCatch`.
+      Locations (4):
+        → config.py:42
+        → main.py:41
+        → main.py:54
+        → main.py:84
 
-### NEW-11 — 🟡 Medium — `QuickLogCard` success/error feedback is not announced
-**File:** `src/components/QuickLogCard.tsx:168-182`
-The feedback `<motion.div>` (line 170) has no `role="status"` and no `aria-live="polite"`. The emoji is correctly hidden from screen readers (fix #17), but the message itself — `"✅ Successfully logged 5 arrays questions!"` — is also not announced because the element is not in a live region. WCAG 4.1.3 (Status Messages) is violated.
-**Recommended fix:** add `role="status"` and `aria-live="polite"` to the motion.div (or wrap the message in a `<span aria-live="polite">`).
+      Sample code:
+        | 41 # ── API Server ───────────────────────────────────────────────────────────────
+        | 42 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+        | 43 API_PORT: int = _safe_int("API_PORT", "8000")
 
-### NEW-12 — 🟡 Medium — `Dropdown` custom-trigger path drops `ariaLabel`
-**File:** `src/components/Dropdown.tsx:92, 109-126`
-The `trigger="trigger"` button (line 87-107) sets `aria-label={ariaLabel}` (line 92). The `trigger="custom"` wrapper (line 109-126) does **not** apply the `ariaLabel` prop. The wrapper has `role="button"` and `aria-haspopup="menu"` but no accessible name. In `UserMenu.tsx:58`, `ariaLabel="Account"` is passed to the `Dropdown` but never reaches the custom trigger. The visible text content (avatar + name + badge + chev) provides an implicit name, but if a future caller passes textless children, the button is unnamed.
-**Recommended fix:** add `aria-label={ariaLabel}` to the custom-trigger `<div>` (line 109).
 
-### NEW-13 — 🟡 Medium — `Modal` dialog has no `aria-labelledby`
-**File:** `src/components/Modal.tsx:93-114`
-The dialog has `role="dialog"`, `aria-modal="true"` (lines 102-103), but no `aria-labelledby` linking to the title `<h3>` (line 107). Screen readers will not announce the dialog title when the modal opens. The `<h3>` is rendered conditionally (line 105 — only when `title` prop is truthy), so adding `aria-labelledby` is conditional too.
-**Recommended fix:** generate a `useId()` for the title, set `id={titleId}` on the `<h3>` and `aria-labelledby={titleId}` on the dialog.
+========================================================================
+  LOW SEVERITY  (42 findings)
+========================================================================
 
-### NEW-14 — 🟡 Medium — `Modal` close button is hidden when no `title` is passed
-**File:** `src/components/Modal.tsx:105-112`
-The close button is inside the `{title && (...)}` block. If a future caller passes a Modal without a title (currently no caller does — `RevisionBankPage.tsx:221` always passes a title — but the type allows `title?: ReactNode`), the user has no in-modal close button and must click the backdrop or press `Esc`. The backdrop click works (line 91), but the missing visible button is a discoverability regression.
-**Recommended fix:** always render the close button; only the `<h3>` title is conditional.
+  ── [4] Assert in Non-Test Code ──
 
-### NEW-15 — 🟡 Medium — `UserProfilePage` `validId` regex too restrictive
-**File:** `src/pages/UserProfilePage.tsx:31`
-```ts
-const validId = /^\d{17,21}$/.test(uid) || /^[a-z0-9_]{4,20}$/.test(uid);
-```
-Discord snowflake IDs are typically 17-19 digits (not 21). The upper bound of 21 is over-permissive and silently allows 20-21 digit IDs that don't exist. More importantly: the `/users/:userId` route (registered in `App.tsx:25`) was kept for backward compatibility, but the regex may reject older IDs that don't match the new 17-21 digit range.
-**Recommended fix:** tighten to `/^\d{17,19}$/` for the snowflake half.
+      Description:  Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+      CWE:          CWE-703
+      Tool(s):      Bandit
+      Rule(s):      B101:assert_used
+      Confidence:   High
 
-### NEW-16 — 🟡 Medium — Mobile auth chip truncates username aggressively
-**File:** `src/components/Layout.module.css:198`
-```css
-.mobileAuth { max-width: 180px; }
-```
-The UserMenu trigger inside the chip contains: a 36 px avatar, the `.name` span (with `white-space: nowrap; text-overflow: ellipsis`), the `.badge` ("Authenticated"), the `.info` wrapper, and the `.chev` (12 px). With 12-16 px gaps, the name gets ~80 px of width before truncation. For a username like "harinyathani", the rendered text will be "harin…" — visually broken.
-**Recommended fix:** bump to `max-width: 240px` on the chip, or hide `.name`/`.badge` on small screens via a media query and show only the avatar + chev.
+      Locations (34):
+        → tests/test_api.py:16
+        → tests/test_api.py:25
+        → tests/test_api.py:35
+        → tests/test_api.py:42
+        → tests/test_api.py:51
+        → tests/test_api.py:57
+        → tests/test_api.py:65
+        → tests/test_api.py:74
+        → tests/test_api.py:82
+        → tests/test_api.py:92
+        → tests/test_api.py:100
+        → tests/test_api.py:106
+        → tests/test_api.py:114
+        → tests/test_api.py:122
+        → tests/test_api.py:128
+        → tests/test_api.py:136
+        → tests/test_api.py:144
+        → tests/test_api.py:150
+        → tests/test_api.py:158
+        → tests/test_api.py:170
+        → tests/test_api.py:179
+        → tests/test_api.py:186
+        → tests/test_time_utils.py:18
+        → tests/test_time_utils.py:24
+        → tests/test_time_utils.py:32
+        → tests/test_time_utils.py:38
+        → tests/test_topic_extractor.py:15
+        → tests/test_topic_extractor.py:22
+        → tests/test_topic_extractor.py:28
+        → tests/test_topic_extractor.py:35
+        → tests/test_topic_extractor.py:41
+        → tests/test_topic_extractor.py:47
+        → tests/test_topic_extractor.py:53
+        → tests/test_topic_extractor.py:59
 
-### NEW-17 — 🟡 Medium — No skip-to-content link
-**File:** `src/components/Layout.tsx:46-141`
-A search for `skip` / `skipToMain` / `skip-link` returned zero matches. Keyboard-only users tabbing through the page must traverse the entire sidebar nav + theme switcher + user menu + footer on every page load before reaching `<main>`. WCAG 2.4.1 (Bypass Blocks) is violated.
-**Recommended fix:** add `<a href="#main" className="sr-only">Skip to main content</a>` (with `:focus` style to make it visible) as the first child of `.shell` in `Layout.tsx:75`, and add `id="main"` to the `<main>` element (line 116).
+      Sample code:
+        | 15     r = await client.get("/health")
+        | 16     assert r.status_code == 200
+        | 17     body = r.json()
 
-### NEW-18 — 🟡 Medium — `tokens.css` `--heat-0` light still faint at 0.18
-**File:** `src/styles/tokens.css:57`
-`--heat-0: rgba(122, 82, 52, 0.18)` on the Alabaster background `#F2E2DE` produces a barely-visible darkening — effectively the "no activity" tiles blend into the background, defeating the heatmap's purpose. The prior audit recommended bumping from 0.1 to a more visible value; 0.18 is a marginal improvement but still inadequate. (Computed contrast against `#F2E2DE` is ~1.3:1, well below the 3:1 WCAG large-element minimum.)
-**Recommended fix:** bump to `0.25` or `0.30`, or use a separate solid token like `#E0CFC8` (a desaturated chestnut ~10% darker than the background).
 
-### NEW-19 — 🟡 Medium — `useRevisionBank` has no abort on unmount
-**File:** `src/hooks/useRevisionBank.ts:32-78`
-The three async functions (`fetchDueItems`, `fetchPagedHistory`, `submitReview`) call `setLoading` / `setError` / `setDueItems` in their `finally` blocks with no `cancelled` flag. If the user navigates away from `/revision` while a fetch is in flight, the state setters fire on an unmounted component. React 18+ doesn't warn, but it's a real leak. The companion `useApi` hook has a proper `cancelled` flag (`useApi.ts:46`).
-**Recommended fix:** add a `cancelled` ref + cleanup, or migrate the hook to use `useApi` internally per the prior audit's recommendation (bug #28).
+  ── [5] Credential / Secret Exposure ──
 
-### NEW-20 — 🟡 Medium — `RevisionBankPage` doesn't reset state on tab switch
-**File:** `src/pages/RevisionBankPage.tsx:91-95`
-The `useEffect` fires `fetchDueItems` / `fetchPagedHistory` when the tab changes, but the previous tab's state (`dueItems`, `allRevisionItems`, `topicStats`) is not cleared. Switching from "All Problems" (where `allRevisionItems` has 10 items) to "Due Today" (where `dueItems` is empty) shows the "Loading queue…" message correctly (line 134) but the moment the new fetch resolves with empty `dueItems`, the user sees the "Queue Cleared!" cheer — correct. However, if the user switches back to "All Problems" before the previous fetch resolves, the displayed list is whichever fetch completed last. Minor race.
-**Recommended fix:** when `currentTab` changes, reset the other lists to `[]` so the UI can't show stale data from a different tab.
+      Description:  Possible hardcoded password: 'https://discord.com/api/oauth2/token'
+      CWE:          CWE-259
+      Tool(s):      Bandit
+      Rule(s):      B105:hardcoded_password_string
+      Confidence:   Medium
 
-### NEW-21 — 🟢 Low — `Dsalogo.png` not WebP, not optimized
-**File:** `public/Dsalogo.png` (56 KB)
-The logo is a 56 KB PNG served as-is. No WebP alternative, no `<picture>` element, no `srcset`. For an above-the-fold asset on every page, this is the LCP candidate. Modern formats would cut this to ~15-20 KB.
-**Recommended fix:** convert to WebP + AVIF, use `<picture>` with the PNG fallback, or use `vite-imagetools` for build-time optimization.
+      Locations (2):
+        → api/routes/auth.py:27
+        → bot.py:1055
 
-### NEW-22 — 🟢 Low — `Heatmap` re-defines `formatDate` and `weekdays` on every render
-**File:** `src/components/Heatmap.tsx:50, 53-58`
-`weekdays` (line 50) is a constant array re-allocated inside `useMemo` (re-allocates only when `todayKey` changes — acceptable). `formatDate` (line 53-58) is a function re-created on **every render** of the component, even though it has no closures over component state. Minor allocation churn.
-**Recommended fix:** hoist `formatDate` to module scope.
+      Sample code:
+        | 26 DISCORD_OAUTH_URL = "https://discord.com/api/oauth2/authorize"
+        | 27 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
+        | 28
 
-### NEW-23 — 🟢 Low — `useApi` error messages are browser-specific technical text
-**File:** `src/hooks/useApi.ts:54-55`
-On a network failure (server down, CORS, offline), `err.message` is `"Failed to fetch"` (Chrome/Edge) or `"NetworkError when attempting to fetch resource"` (Firefox) or `"Load failed"` (Safari). The `ErrorState` component shows this raw text. A user sees "Load failed" and doesn't know if it's their connection or the server.
-**Recommended fix:** wrap network errors in `useApi` and produce a human-friendly message: `"Couldn't reach the server. Check your connection and retry."`
 
-### NEW-24 — 🟢 Low — No page-level code splitting
-**File:** `src/App.tsx:20-35`
-All 7 pages are statically imported. `React.lazy` / `Suspense` is not used. The initial bundle includes `Analytics`, `MyDashboard`, `Admin`, `RevisionBank` even if the user only ever visits `/`. Since the index route is `Dashboard` (which uses Recharts), the `recharts` chunk (421 KB / 114 KB gzip) is needed on first load anyway — but the other four pages' JS (~100-150 KB combined) could be deferred.
-**Recommended fix:** wrap each non-Dashboard page in `React.lazy(() => import("./pages/..."))` and add a single `<Suspense fallback={<Loader/>}>` around `<Outlet />` in `Layout.tsx`.
+  ── [6] Silent Exception Handling (try/except/pass) ──
 
-### NEW-25 — 🟢 Low — Redundant truthiness check
-**File:** `src/pages/MyDashboardPage.tsx:54`
-```tsx
-{DiscordGlyph && <DiscordGlyph />}
-```
-`DiscordGlyph` is a defined function (line 25), always truthy. The `&&` check is dead code.
-**Recommended fix:** remove the check: `{<DiscordGlyph />}`.
+      Description:  Try, Except, Pass detected.
+      CWE:          CWE-703
+      Tool(s):      Bandit
+      Rule(s):      B110:try_except_pass
+      Confidence:   High
 
-### NEW-26 — 🟢 Low — `SkeletonChart` is a pointless alias for `SkeletonCard`
-**File:** `src/components/Loader.tsx:22`
-```ts
-export { SkeletonCard as SkeletonChart };
-```
-Both render `<Skeleton variant="chart" />` (a 320 px tall pulse). The alias exists for historical reasons; no semantic difference.
-**Recommended fix:** rename callers to use `SkeletonCard` and delete the alias.
+      Locations (6):
+        → api/routes/health.py:87
+        → api/routes/users.py:419
+        → handlers/message_handler.py:164
+        → handlers/summary_handler.py:382
+        → services/ai_service.py:23
+        → services/ai_service.py:34
 
-### NEW-27 — 🟢 Low — `color-mix()` browser support not declared
-**File:** `src/styles/tokens.css` (~30 usages), `src/components/Button.module.css`, `src/components/Field.module.css`, etc.
-The codebase uses `color-mix(in srgb, var(--xxx) X%, transparent)` extensively. Requires Chrome 111+ (Mar 2023), Safari 16.2+ (Dec 2022), Firefox 113+ (May 2023). No `browserslist` field in `package.json` to declare the minimum. Safari 15 and Firefox 109 (still in extended support) will show unstyled colors.
-**Recommended fix:** add a `"browserslist"` field to `package.json` declaring the minimum (e.g., `["defaults", "not dead", "not op_mini all"]`) and document the requirement.
+      Sample code:
+        | 86         user_count = len(users)
+        | 87     except Exception:
+        | 88         pass
+        | 89
 
-### NEW-28 — 🟢 Low — `AdminPage` health fetch silently swallows errors
-**File:** `src/pages/AdminPage.tsx:75`
-```ts
-api.health().then((r) => { if (!cancelled) setHealthData(r.data); }).catch(() => {});
-```
-The `.catch(() => {})` discards the error entirely. The health card on line 353 ("API Status: Checking…") stays in "Checking…" forever if `/health` fails. No user feedback, no retry button.
-**Recommended fix:** set a `healthError` state and render "API Status: Unreachable" in red.
 
-### NEW-29 — 🟢 Low — `UserMenu` initials calculation unsafe
-**File:** `src/components/UserMenu.tsx:40`
-```ts
-const initials = user.username.slice(0, 2).toUpperCase();
-```
-The `AuthUser.username` field is typed as `string` (required) in `AuthContext.tsx:20`, so the TypeScript type is correct. But the API can in practice return a user with `username: null` or `""` (the type is a contract, not a runtime guarantee). On `""`, `initials` becomes `""` (renders an empty fallback div); on `null`, `null.slice(0, 2)` throws.
-**Recommended fix:** `const initials = (user.username ?? "??").slice(0, 2).toUpperCase();`
+========================================================================
+  RECOMMENDATIONS
+========================================================================
 
-### NEW-30 — 🟢 Low — No test suite configured
-**File:** `package.json`
-No `vitest`, `jest`, `playwright`, `@testing-library/react`, or `cypress` in `devDependencies` or `dependencies`. The `package.json` scripts only have `dev`, `build`, `preview`, `typecheck`. Zero test coverage on 3,929 lines of TypeScript across 7 pages, 18 components, 2 hooks, 2 contexts, and 1 API service. Every refactor (including the one just completed) is a high-risk change with no safety net.
-**Recommended fix:** add `vitest` + `@testing-library/react` for component tests (UserMenu hook order, Modal focus trap, Dropdown keyboard behavior, Heatmap memo invalidation) and `@playwright/test` for e2e (login flow, quick-log submission, leaderboard sort).
+  [HIGH PRIORITY — Fix immediately]
 
----
+    1. CREDENTIAL LOGGING: Review all logger.error() calls that
+       log OAuth token exchange responses. Ensure raw API responses
+       (which may contain tokens) are never logged. Log only status
+       codes and sanitized error messages.
 
-## Summary Table
+    2. SQL INJECTION: Replace all f-string SQL query construction
+       with properly parameterized queries. Use %s placeholders
+       consistently; avoid interpolating column names or WHERE
+       clauses via f-strings. Consider a query builder for dynamic SQL.
 
-| Severity | Previously Reported | Still Open | Newly Found |
-|---|---|---|---|
-| 🔴 Critical | 3 | **0** | 0 |
-| 🟠 High | 5 | **0** | 1 (NEW-1) |
-| 🟡 Medium | ~22 | **2** (#15, #28) | 17 (NEW-2 through NEW-20, minus NEW-1) |
-| 🟢 Low | ~7 | **2** (#30, #34) | 10 (NEW-21 through NEW-30) |
-| ⚠️ Partial | — | 6 (#2, #15, #22, #24, #33, #37) | — |
-| ❓ Unverified | — | 2 (#23, #37) | — |
-| **Total** | **37** | **4** fully open + 6 partial + 2 unverified | **30** (1 high, 17 medium, 12 low) |
+  [MEDIUM PRIORITY — Fix before next release]
 
-**Net post-redesign status:** 23 prior bugs fully fixed, 8 partially fixed, 4 still present, 2 unverifiable. **30 new defects** introduced (1 high, 17 medium, 12 low).
+    3. NETWORK BINDING: Replace hardcoded '0.0.0.0' defaults with
+       '127.0.0.1' for development. Use environment-based config
+       to bind to 0.0.0.0 only in production behind a reverse proxy.
 
----
+    4. SQL QUERY CONSTRUCTION: Even where input is internally
+       controlled (column names from a whitelist), prefer the
+       psycopg2 sql.Identifier() or sql.SQL() for safe composition.
 
-## Priority Fix Order
+  [LOW PRIORITY — Address in maintenance]
 
-1. **NEW-1** 🟠 — Add `<ThemeSwitcher compact />` to the mobile auth strip. The prior audit's #2 fix is incomplete and visible to every mobile user.
-2. **NEW-10** 🟡 — Add an `ErrorBoundary` around `<Outlet />`. A single bad API response can blank the entire app in production.
-3. **NEW-17** 🟡 — Add a skip-to-content link. Required for keyboard accessibility; trivial 5-line fix.
-4. **#15** (prior) ❌ — Stop the page-level `if (overview.error) return <ErrorState />` short-circuit. Render skeletons and partial data independently.
-5. **NEW-5** 🟡 — Add keyboard support to `RevisionBankPage` `ProblemRow`. Same pattern as the Leaderboard fix; copy-paste the solution.
-6. **#18** (prior) ❌ — Add a hidden `<option>` fallback to the three `AdminPage` Selects, or reset the state on `users` change.
-7. **NEW-3** 🟡 — Memoize the `Modal` `onClose` in `RevisionBankPage` to stop the body-overflow flicker.
-8. **NEW-4** 🟡 — Add `label` props to the four unlabeled `<Select>`s in `AdminPage`.
-9. **NEW-11** 🟡 — Add `aria-live="polite"` to the `QuickLogCard` feedback region.
-10. **NEW-7** 🟡 — Add an off-screen data table for the Heatmap so screen readers can read the per-day data.
-11. **#28** (prior) ❌ — Migrate `useRevisionBank` to wrap `useApi` (or add a `cancelled` flag + `refetch`). Eliminates NEW-6, NEW-19, and #28 in one pass.
-12. **NEW-2** 🟡 — Render `<UserMenu/>` once and CSS-swap its container, instead of mounting it twice.
-13. **NEW-9** 🟡 — Add `AbortController` to `useApi` for in-flight cancellation on dep change.
-14. **NEW-13** + **NEW-14** 🟡 — `aria-labelledby` on Modal; always render the close button.
-15. **NEW-12** 🟡 — Pass `ariaLabel` to the Dropdown custom trigger.
-16. **NEW-16** 🟡 — Bump the mobile auth chip `max-width` to 240 px or hide the name on small screens.
-17. **NEW-18** 🟡 — Bump `--heat-0` light to 0.25 or 0.30.
-18. **NEW-8** 🟡 — Add a server-side `/dashboard-aggregate` endpoint to collapse the 6 parallel calls into 1.
-19. **NEW-20** 🟡 — Reset `RevisionBankPage` lists on tab switch.
-20. **NEW-24** 🟢 — Wrap non-Dashboard pages in `React.lazy` + `<Suspense>`.
-21. Remaining 🟢 low-priority items (NEW-21 through NEW-30, #30, #34) — batch into a "polish" PR.
+    5. SILENT EXCEPTIONS: Replace bare 'except: pass' with specific
+       exception types (e.g., except ValueError). At minimum, log
+       the exception with logger.debug() to aid future debugging.
+
+    6. HARDCODED SECRETS: The B105 flags on URL constants and
+       placeholder token checks are false positives — consider
+       adding '# nosec B105' inline suppression comments.
+
+    7. ASSERT IN TESTS: B101 (assert_used) findings in test files
+       are expected behavior for pytest. Exclude the tests/
+       directory from Bandit, or add '# nosec B101' comments.
+
+
+------------------------------------------------------------------------
+  TOOL CONFIGURATION USED
+------------------------------------------------------------------------
+
+  Bandit:
+    bandit -r . --exclude .venv,venv,scratch,frontend,mobile -f json
+
+  Semgrep:
+    semgrep scan --config=auto --exclude='.venv' --exclude='venv'
+      --exclude='scratch' --exclude='frontend' --exclude='mobile' --json
+
+------------------------------------------------------------------------
+  RAW REPORTS
+------------------------------------------------------------------------
+  • bandit_report.txt   — Full Bandit text output (80 findings)
+  • bandit_report.json  — Bandit JSON (machine-readable)
+  • semgrep_report.txt  — Full Semgrep text output (7 findings)
+  • semgrep_report.json — Semgrep JSON (machine-readable)
+
+========================================================================
+  END OF PHASE 1 REPORT
+========================================================================
+
+
+
+########################################################################
+### Phase 2: API & Logic Flaws (AI Audit)
+########################################################################
+#
+#  Methodology:  Manual line-by-line review of the FastAPI layer acting
+#                as a Senior Web Application Security Architect.
+#  Scope:        api/ (routes, middleware, schemas), main.py, config.py
+#  Date:         2026-07-04
+#  Auditor:      AI (Deep Logical Audit)
+#
+########################################################################
+
+
+========================================================================
+  CRITICAL — Exploitable Vulnerabilities
+========================================================================
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-01]  IDOR: Full CRUD on ANY User's Reminder Schedule
+           Severity: CRITICAL
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/reminders.py:54     GET    /reminders/{user_id}
+    → api/routes/reminders.py:76     POST   /reminders
+    → api/routes/reminders.py:117    DELETE /reminders/{user_id}
+
+  Vulnerability:
+    ALL three reminder endpoints are completely unauthenticated. There
+    is NO call to get_current_user(), _verify_owner(), or any auth
+    dependency. Any anonymous HTTP client can:
+
+      1. READ any user's reminder schedule (warn_time, deadline,
+         final_time, email_time, email_configured flag):
+           curl https://dsabot.in/api/reminders/123456789012345678
+
+      2. MODIFY any user's reminder times by POSTing a body with an
+         arbitrary user_id:
+           curl -X POST https://dsabot.in/api/reminders \
+             -H 'Content-Type: application/json' \
+             -d '{"user_id":"VICTIM_ID","deadline":"01:00"}'
+
+      3. RESET any user's reminders to defaults:
+           curl -X DELETE https://dsabot.in/api/reminders/VICTIM_ID
+
+  Attack vector:
+    An attacker enumerates Discord user IDs (17-21 digit integers,
+    publicly visible in Discord) and bulk-modifies reminder schedules
+    for every registered user — e.g. setting all deadlines to 00:01 so
+    every user gets incorrectly flagged as having missed their deadline,
+    or disabling reminders entirely.
+
+  Impact:
+    • Integrity: Any user's reminder configuration silently overwritten.
+    • Availability: Mass disruption of the accountability system.
+    • Privacy: Exposes whether a user has configured an email address.
+
+  Fix:
+    Add Depends(get_current_user) and _verify_owner() checks to all
+    three endpoints, identical to the pattern used in users.py for
+    PUT /{user_id}/email and PUT /{user_id}/timezone.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-02]  IDOR: Unauthenticated Read of ANY User's Full Activity Logs
+           Severity: HIGH
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/users.py:568   GET /users/{user_id}/activity
+
+  Vulnerability:
+    The /users/{user_id}/activity endpoint returns the user's raw
+    progress log entries — including full message_content (the original
+    Discord messages), topics, and parsed_fields JSON. The endpoint
+    has NO authentication requirement (comment on line 569: "Public
+    route — no auth required").
+
+    While stats/streak/topics are deliberately public (leaderboard
+    data), raw message content is personally identifying information.
+    The parsed_fields JSON may contain platform-specific data
+    (LeetCode/Codeforces usernames, problem-solving patterns, timing).
+
+  Attack vector:
+    curl https://dsabot.in/api/users/VICTIM_ID/activity?limit=50
+
+    Returns up to 50 of the user's most recent Discord messages
+    verbatim, including any personal notes, frustrations, or context
+    they shared in a private Discord channel.
+
+  Impact:
+    • Privacy: Verbatim Discord messages exposed to anonymous internet
+      users. Users may share personal context ("I struggled because of
+      my interview at X company") that was intended only for their
+      accountability group.
+
+  Fix:
+    Either gate behind authentication + ownership check, OR redact
+    message_content for non-owner viewers (return only topics,
+    parsed_fields summary, and timestamp).
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-03]  JWT Forgery via Default SESSION_SECRET
+           Severity: CRITICAL (configuration-dependent)
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → config.py:57              SESSION_SECRET default value
+    → api/middleware/auth.py:52  jwt.encode() uses config.SESSION_SECRET
+    → api/middleware/auth.py:58  jwt.decode() uses config.SESSION_SECRET
+
+  Vulnerability:
+    The SESSION_SECRET has a hardcoded default:
+      SESSION_SECRET = os.getenv("SESSION_SECRET",
+                                 "change-me-to-a-random-secret-key")
+
+    If the deployer fails to set the SESSION_SECRET environment
+    variable (a common oversight — the .env.example shows the same
+    default), the JWT signing key is the publicly-known string
+    "change-me-to-a-random-secret-key".
+
+    An attacker can forge arbitrary JWT tokens:
+      import jwt
+      token = jwt.encode({
+          "sub": "VICTIM_DISCORD_ID",
+          "username": "attacker",
+          "iat": 1720123456,
+          "exp": 1722715456
+      }, "change-me-to-a-random-secret-key", algorithm="HS256")
+
+    This forged token grants full authenticated access as ANY user,
+    including the admin (if ADMIN_DISCORD_ID is known or guessable).
+
+  Attack vector:
+    1. Attacker crafts a JWT with sub=ADMIN_DISCORD_ID.
+    2. Sends it as: Cookie: dsa_session=<forged_token>
+    3. Gains full admin panel access: sudo-log, undo, force-summary.
+    4. Can also impersonate any user for owner-gated mutations
+       (email, timezone, username, export, progress logging).
+
+  Impact:
+    • Complete authentication bypass.
+    • Full admin privilege escalation.
+    • Data integrity destruction (admin can undo/modify any user's logs).
+
+  Fix:
+    1. Fail LOUDLY at startup if SESSION_SECRET is the default value
+       or is shorter than 32 characters:
+         if SESSION_SECRET == "change-me-to-a-random-secret-key":
+             raise RuntimeError("SESSION_SECRET must be configured!")
+    2. Auto-generate a random secret on first run if none is set,
+       persisting it to .env.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-04]  No CSRF Protection on State-Mutating Cookie-Auth Endpoints
+           Severity: HIGH
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/reminders.py:76    POST /reminders
+    → api/routes/reminders.py:117   DELETE /reminders/{user_id}
+    → api/routes/users.py:241       PUT /users/settings/username
+    → api/routes/users.py:325       PUT /{user_id}/email
+    → api/routes/users.py:339       PUT /{user_id}/timezone
+    → api/routes/progress.py:25     POST /progress
+    → api/routes/admin.py:150       POST /admin/sudo-log
+    → api/middleware/auth.py:80     Cookie-based session extraction
+
+  Vulnerability:
+    The auth system uses HttpOnly cookies (dsa_session) for web
+    sessions with SameSite=Lax. While SameSite=Lax blocks cookies on
+    cross-site POST from <form> submissions, it does NOT protect
+    against:
+
+      1. GET-based state mutations (none found here — good).
+      2. Top-level navigation attacks using <meta http-equiv="refresh">
+         or window.open() to trigger GET requests.
+      3. Subdomain attacks if an attacker controls any *.dsabot.in
+         subdomain (cookie path="/" and no domain restriction means
+         the cookie is sent to all subdomains).
+
+    More critically, there is NO CSRF token mechanism at all. The
+    CORS policy allows credentials from https://dsabot.in, but if a
+    CORS misconfiguration is introduced (or the frontend origin is
+    compromised), all mutating endpoints are vulnerable.
+
+    The SameSite=Lax setting provides baseline protection for same-site
+    form POSTs, but defense-in-depth demands a CSRF token or the
+    Double Submit Cookie pattern, especially for:
+      - Admin operations (sudo-log, undo, force-summary)
+      - Profile mutations (email, timezone, username)
+      - Progress logging
+
+  Impact:
+    • If CORS or SameSite protections are weakened (or the frontend is
+      XSS'd), an attacker can silently trigger admin operations.
+
+  Fix:
+    Implement Double Submit Cookie CSRF protection: set a random
+    CSRF token in a non-HttpOnly cookie, require it as an
+    X-CSRF-Token header on all mutating requests. The SPA frontend
+    reads the cookie and attaches the header.
+
+
+========================================================================
+  HIGH — Significant Vulnerabilities
+========================================================================
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-05]  JWT Token Lifetime: 30-Day Non-Revocable Sessions
+           Severity: HIGH
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/middleware/auth.py:29     TOKEN_EXPIRE_SECONDS = 30 days
+    → api/routes/auth.py:147       max_age = 30 days
+
+  Vulnerability:
+    JWT tokens are valid for 30 days and are completely stateless —
+    there is NO server-side session store, no token revocation list,
+    and no mechanism to invalidate a compromised token.
+
+    If a user's JWT is stolen (e.g. via XSS on the frontend, network
+    interception when COOKIE_SECURE=false, or device theft), the
+    attacker has a 30-day window of full access. The legitimate user
+    cannot revoke the stolen token — even logging out only deletes the
+    browser cookie but the token itself remains valid.
+
+  Attack vector:
+    1. Attacker steals JWT via any vector (XSS, shared computer, etc.)
+    2. Uses it for 30 days, even after the victim "logs out".
+    3. No server-side mechanism exists to detect or block the replay.
+
+  Impact:
+    • Account takeover for up to 30 days.
+    • Victim cannot revoke access by logging out.
+
+  Fix:
+    1. Reduce token lifetime to 1-7 days.
+    2. Implement a server-side session store (even a simple
+       token_id → revoked_at map in Redis or PostgreSQL).
+    3. On logout, mark the token_id as revoked.
+    4. On each request, check if the token is revoked.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-06]  Mobile Deep Link Exposes JWT in URL (Token Leakage)
+           Severity: HIGH
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/auth.py:246     deep_link construction
+    → api/routes/auth.py:342     href="{deep_link}" in HTML
+    → api/routes/auth.py:347     window.location.href = "{deep_link}"
+
+  Vulnerability:
+    The mobile OAuth callback constructs a deep link URL that embeds
+    the full JWT token as a query parameter:
+
+      dsabot://auth/callback?token=eyJhbGci...&user_id=123456
+
+    This URL is:
+    1. Rendered into an HTML page as both an <a href> and a JS
+       window.location.href assignment.
+    2. Visible in browser history on the intermediary page.
+    3. Potentially logged by intermediate proxies, CDNs, or WAFs
+       that log full request URLs.
+    4. Exposed to any Android app that registers a competing handler
+       for the dsabot:// URI scheme (intent hijacking).
+
+    Additionally, the HTML page is served WITHOUT any caching headers,
+    meaning the JWT-containing deep link could be cached by
+    intermediary caches or the browser's back-forward cache.
+
+  Impact:
+    • Full session token exposed in URL, browser history, and logs.
+    • Android intent hijacking could intercept the token.
+
+  Fix:
+    1. Add Cache-Control: no-store, no-cache, must-revalidate to the
+       HTML response headers.
+    2. Use a short-lived authorization code pattern: generate a
+       one-time code, redirect to dsabot://auth/callback?code=XXXX,
+       and have the mobile app exchange it for the JWT via a secure
+       POST endpoint within 60 seconds.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-07]  IDOR: Unauthenticated CSV Export of User Data
+           Severity: HIGH (mitigated by _verify_owner — CONFIRMED SAFE)
+           REVISED: Actually safe — _verify_owner IS called at line 651.
+────────────────────────────────────────────────────────────────────────
+
+  NOTE: Export endpoint at users.py:650 DOES call _verify_owner().
+  This finding is WITHDRAWN. The export endpoint is properly gated.
+
+
+========================================================================
+  MEDIUM — Rate Limiting & Resource Exhaustion
+========================================================================
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-08]  No Rate Limiting on Authentication Endpoints
+           Severity: MEDIUM
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/auth.py:46      GET /auth/login
+    → api/routes/auth.py:66      GET /auth/callback
+    → api/routes/auth.py:168     GET /auth/mobile-callback
+
+  Vulnerability:
+    The OAuth login and callback endpoints have no rate limiting.
+    An attacker can:
+
+    1. Flood GET /auth/login to generate thousands of Discord OAuth
+       redirects per second, potentially hitting Discord's API rate
+       limits and causing legitimate users to be unable to log in.
+
+    2. Brute-force GET /auth/callback?code=XXXX with random codes,
+       causing the server to make thousands of outbound HTTP requests
+       to Discord's token endpoint per second. Each request:
+       - Creates an httpx.AsyncClient (connection overhead)
+       - Makes an outbound POST to Discord
+       - Consumes a server-side asyncio task slot
+
+       This is an amplification attack: 1 inbound request → 1-2
+       outbound HTTP requests to Discord's API.
+
+    3. There is no OAuth state parameter validation. The /auth/login
+       endpoint does not generate a state token, and /auth/callback
+       does not verify one. This means:
+       - No CSRF protection on the OAuth flow itself.
+       - An attacker can initiate the OAuth flow and redirect the
+         callback to their own session (login CSRF — forces the
+         victim's browser to log into the attacker's account).
+
+  Impact:
+    • DoS via Discord API rate limit exhaustion.
+    • Login CSRF: attacker can force a victim to log into the
+      attacker's Discord account on the dashboard.
+    • Resource exhaustion on the server from unbounded outbound
+      HTTP connections.
+
+  Fix:
+    1. Add IP-based rate limiting (e.g. slowapi or a custom
+       middleware) to auth endpoints: 10 requests/minute per IP.
+    2. Implement OAuth state parameter: generate a random state in
+       /auth/login, store in a short-lived cookie, verify in
+       /auth/callback.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-09]  No Rate Limiting on Unauthenticated Data Endpoints
+           Severity: MEDIUM
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/users.py:483       GET /users/{user_id}/stats
+    → api/routes/users.py:515       GET /users/{user_id}/streak
+    → api/routes/users.py:539       GET /users/{user_id}/topics
+    → api/routes/users.py:361       GET /users/{user_id}/dashboard-aggregate
+    → api/routes/summaries.py:42    GET /summaries/{user_id}
+    → api/routes/summaries.py:85    GET /weekly-report/{user_id}
+    → api/routes/analytics.py:44    GET /analytics/overview
+    → api/routes/analytics.py:91    GET /analytics/topics
+    → api/routes/analytics.py:124   GET /analytics/activity
+    → api/routes/leaderboard.py:81  GET /leaderboard
+    → api/routes/health.py:59       GET /status
+
+  Vulnerability:
+    All read-only data endpoints are unauthenticated AND lack rate
+    limiting. While the @cached_route(60) decorator provides some
+    protection via memoization (cache TTL = 60s), the cache key
+    includes function arguments — meaning an attacker can bypass
+    the cache by varying parameters:
+
+      # Each of these is a SEPARATE cache key → full DB query
+      GET /users/111111111111111111/stats
+      GET /users/222222222222222222/stats
+      GET /users/333333333333333333/stats
+      ...
+
+    The dashboard-aggregate endpoint (line 361) is particularly
+    expensive: it fetches ALL progress logs for a user, iterates
+    them in Python, calls JSON parsing, topic normalization, and
+    difficulty extraction for each entry. With no rate limit, an
+    attacker can enumerate user IDs and trigger N heavy queries.
+
+    The /analytics/topics endpoint (line 91) calls
+    database.get_all_progress_topics() which fetches ALL progress
+    log topics across ALL users in a single query — potentially
+    returning tens of thousands of rows.
+
+  Impact:
+    • Database connection pool exhaustion.
+    • CPU exhaustion from Python-side data processing.
+    • Effective DoS of the API for legitimate users.
+
+  Fix:
+    1. Add global IP-based rate limiting middleware (e.g. slowapi):
+       - Unauthenticated endpoints: 30 req/min per IP.
+       - Authenticated endpoints: 120 req/min per user.
+    2. Add pagination or result-count caps to analytics queries.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-10]  OpenAPI/Swagger Docs Exposed in Production
+           Severity: MEDIUM
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/app.py:49-51   docs_url="/docs", redoc_url="/redoc",
+                          openapi_url="/openapi.json"
+
+  Vulnerability:
+    The OpenAPI documentation endpoints (/docs, /redoc, /openapi.json)
+    are unconditionally enabled. In production, these expose:
+
+    1. The complete API schema including all endpoints, parameters,
+       request/response models, and descriptions.
+    2. Admin endpoint paths and their expected payloads.
+    3. Internal schema details (UserSettings fields, parsed_fields
+       structure, etc.) that aid targeted attacks.
+
+  Impact:
+    • Reconnaissance: Attackers get a complete API map without any
+      scanning or fuzzing.
+    • Reduced attacker effort for all other vulnerabilities in this
+      report.
+
+  Fix:
+    Disable docs in production:
+      docs_url="/docs" if os.getenv("ENV") != "production" else None,
+      redoc_url="/redoc" if os.getenv("ENV") != "production" else None,
+      openapi_url="/openapi.json" if os.getenv("ENV") != "production" else None,
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-11]  Missing OAuth State Parameter (Login CSRF)
+           Severity: MEDIUM
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/routes/auth.py:46-60   GET /auth/login
+    → api/routes/auth.py:66      GET /auth/callback
+
+  Vulnerability:
+    The OAuth2 flow does NOT implement the state parameter:
+
+    1. GET /auth/login builds the Discord OAuth URL without a state:
+         params = {
+             "client_id": ...,
+             "redirect_uri": ...,
+             "response_type": "code",
+             "scope": SCOPES,
+             # ← NO "state" parameter
+         }
+
+    2. GET /auth/callback does not verify any state value.
+
+    This omits a fundamental OAuth2 security requirement (RFC 6749
+    Section 10.12). Without state verification:
+
+    - An attacker can initiate an OAuth flow with THEIR Discord
+      account, obtain a valid callback URL
+      (/auth/callback?code=ATTACKER_CODE), and trick the victim
+      into visiting it. The victim's browser then logs into the
+      attacker's account, and any subsequent actions (linking
+      accounts, setting preferences) happen under the attacker's
+      identity.
+
+    - The attacker can replay captured callback URLs if the
+      authorization code hasn't expired.
+
+  Impact:
+    • Login CSRF: victim silently logged into attacker's account.
+    • Session fixation variant.
+
+  Fix:
+    1. In /auth/login: generate state = secrets.token_urlsafe(32),
+       store in a short-lived cookie (e.g. oauth_state, 5min TTL).
+    2. In /auth/callback: read the oauth_state cookie, compare with
+       the state query parameter, reject if mismatched.
+
+
+========================================================================
+  LOW — Defense-in-Depth Gaps
+========================================================================
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-12]  Admin ID Comparison Relies on String Coercion
+           Severity: LOW
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/middleware/admin_auth.py:38
+    → api/routes/auth.py:392
+
+  Details:
+    The admin check uses str(current_user.id) != str(config.ADMIN_DISCORD_ID).
+    Both values are already strings (JWT sub is stored as str, config
+    value is a str), so this is safe. However, if ADMIN_DISCORD_ID is
+    set to "0" (which happens when BOT_OWNER_ID is 0 and
+    ADMIN_DISCORD_ID is unset), line 33 checks for falsy
+    (not config.ADMIN_DISCORD_ID), which would be True for empty
+    string but False for "0". This means ADMIN_DISCORD_ID="0" would
+    pass the guard and compare against user IDs — effectively
+    disabling admin access (no Discord ID is "0"), which is safe
+    but confusing. No exploitable flaw, but worth documenting.
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-13]  COOKIE_SECURE Defaults to False
+           Severity: LOW (configuration-dependent)
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → config.py:58   COOKIE_SECURE defaults to "false"
+
+  Details:
+    With COOKIE_SECURE=false, the dsa_session cookie is sent over
+    plain HTTP connections. In production behind HTTPS, this should
+    be set to true. If a production deployment omits this env var,
+    the session cookie will be transmitted in cleartext over any
+    HTTP fallback, enabling session hijacking via network sniffing.
+
+  Fix:
+    Default to True in production, or fail startup if not explicitly
+    set when SESSION_SECRET is configured (indicating a production
+    deployment).
+
+
+────────────────────────────────────────────────────────────────────────
+  [P2-14]  Server Timing Header Leaks Processing Duration
+           Severity: LOW
+────────────────────────────────────────────────────────────────────────
+
+  Files:
+    → api/middleware/request_logger.py:32
+
+  Details:
+    The X-Process-Time-Ms response header reveals server-side
+    processing time for every request. This aids timing-based
+    attacks (e.g. timing oracle for user enumeration — slower
+    responses for existing users vs. non-existing ones in the
+    /users/{identifier} endpoint, where _get_user_or_404 hits the
+    DB on valid IDs but returns 404 faster for invalid ones).
+
+  Fix:
+    Remove the header in production, or at least for auth-related
+    endpoints.
+
+
+========================================================================
+  SUMMARY: Phase 2 Findings
+========================================================================
+
+  ┌──────────────┬───────┬──────────────────────────────────────────┐
+  │ Severity     │ Count │ Key Findings                             │
+  ├──────────────┼───────┼──────────────────────────────────────────┤
+  │ CRITICAL     │   2   │ P2-01 (Reminders IDOR),                 │
+  │              │       │ P2-03 (JWT forgery via default secret)   │
+  ├──────────────┼───────┼──────────────────────────────────────────┤
+  │ HIGH         │   3   │ P2-02 (Activity log exposure),           │
+  │              │       │ P2-05 (30-day non-revocable JWT),        │
+  │              │       │ P2-06 (JWT in deep link URL)             │
+  ├──────────────┼───────┼──────────────────────────────────────────┤
+  │ MEDIUM       │   4   │ P2-04 (No CSRF tokens),                 │
+  │              │       │ P2-08 (No auth rate limiting),           │
+  │              │       │ P2-09 (No data endpoint rate limiting),  │
+  │              │       │ P2-10 (OpenAPI docs in production),      │
+  │              │       │ P2-11 (Missing OAuth state parameter)    │
+  ├──────────────┼───────┼──────────────────────────────────────────┤
+  │ LOW          │   3   │ P2-12, P2-13, P2-14                     │
+  └──────────────┴───────┴──────────────────────────────────────────┘
+
+  Withdrawn: P2-07 (export IDOR) — confirmed safe after verifying
+  _verify_owner() is called at users.py:651.
+
+  Positive observations (what the codebase does RIGHT):
+    ✓ Admin routes are properly gated via require_admin dependency.
+    ✓ Owner-gated mutations (email, timezone, username, export) use
+      _verify_owner() consistently.
+    ✓ Progress logging routes (POST /progress/*) require auth via
+      Depends(require_auth) and scope mutations to the JWT's user_id.
+    ✓ JWT uses HS256 with explicit algorithms=[ALGORITHM] in decode()
+      (prevents algorithm confusion attacks).
+    ✓ CORS is restricted to specific origins, not wildcard.
+    ✓ Session cookie uses HttpOnly=True, SameSite=Lax.
+    ✓ Admin auth always returns 403 (not 401) to prevent resource
+      enumeration.
+
+
+========================================================================
+  END OF PHASE 2 REPORT
+========================================================================

@@ -1309,3 +1309,46 @@ async def get_revision_topic_confidence(user_id: int) -> List[dict]:
                 return rows
 
     return await _run_sync(_sync)
+
+
+async def get_revision_summary_stats(user_id: int) -> dict:
+    """Whole-bank aggregate stats for the Revision Bank 'Progress' tab.
+
+    Computed across the user's *entire* revision bank (not a paginated
+    page) so the frontend never has to derive these from a single page:
+
+    - ``total_reviews``: count of distinct problems that have been reviewed
+      at least once *beyond* the initial solve. Every row is created with
+      ``review_count = 1`` on first solve, so a genuine review is
+      ``review_count > 1``. This is a distinct-problem count, NOT the sum
+      of ``review_count`` values.
+    - ``global_avg_confidence``: mean ``confidence_last`` across all rows.
+
+    Returns
+    -------
+    dict
+        ``{"total_reviews": int, "global_avg_confidence": float}``.
+        Both are ``0`` when the user has no revision-bank entries.
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE review_count > 1)            AS total_reviews,
+                        COALESCE(ROUND(AVG(confidence_last)::numeric, 2), 0) AS global_avg_confidence
+                    FROM revision_bank
+                    WHERE user_id = %(user_id)s
+                    """,
+                    {"user_id": user_id},
+                )
+                row = cur.fetchone()
+                if not row:
+                    return {"total_reviews": 0, "global_avg_confidence": 0.0}
+                return {
+                    "total_reviews": int(row["total_reviews"] or 0),
+                    "global_avg_confidence": float(row["global_avg_confidence"] or 0.0),
+                }
+
+    return await _run_sync(_sync)

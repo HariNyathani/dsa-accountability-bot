@@ -39,8 +39,9 @@
 .input:focus,
 .select:focus,
 .area:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(122, 82, 52, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent),
+    0 0 18px -6px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .select {

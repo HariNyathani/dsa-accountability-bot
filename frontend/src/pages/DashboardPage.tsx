@@ -34,10 +34,9 @@ export default function DashboardPage() {
   const _topicsRaw = topics.data?.top_topics ?? [];
   const _top8 = _topicsRaw.slice(0, 8);
   const _top8Sum = _top8.reduce((s, f) => s + f.count, 0);
-  const _topicsOther = (topics.data?.total_mentions ?? 0) - _top8Sum;
-  const topicPieData = _topicsOther > 0
-    ? [..._top8, { topic: `Other (${_topicsRaw.length - 8})`, count: _topicsOther }]
-    : _top8;
+  const totalMentions = topics.data?.total_mentions ?? 0;
+  const _topicsOther = totalMentions - _top8Sum;
+  const topicPieData = _top8;
 
   return (
     <>
@@ -99,12 +98,13 @@ export default function DashboardPage() {
           )}
         </GlassCard>
 
-        <GlassCard padded glow>
+        <GlassCard padded glow style={{ position: "relative" }}>
           <div className={s.title}>📚 Topic Distribution</div>
           {topics.loading ? (
             <SkeletonCard />
           ) : topicPieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
+            <>
+              <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
                   data={topicPieData}
@@ -115,17 +115,23 @@ export default function DashboardPage() {
                   outerRadius={100}
                   innerRadius={54}
                   paddingAngle={2}
-                  label={({ topic, percent }: { topic: string; percent: number }) =>
-                    `${topic} ${(percent * 100).toFixed(0)}%`}
+                  label={({ topic, count }: { topic: string; count: number }) =>
+                    `${topic} ${((count / Math.max(1, totalMentions)) * 100).toFixed(0)}%`}
                   labelLine={{ stroke: "var(--border-strong)" }}
                 >
                   {topicPieData.map((_, i) => (
-                    <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#9E9E9E"} />
+                    <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#8C8177"} />
                   ))}
                 </Pie>
                 <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
               </PieChart>
             </ResponsiveContainer>
+            {_topicsOther > 0 && (
+              <div style={{ position: "absolute", bottom: "16px", right: "20px", fontSize: "0.85rem", color: "var(--text-dim)", fontWeight: 500 }}>
+                Other: {((_topicsOther / Math.max(1, totalMentions)) * 100).toFixed(0)}%
+              </div>
+            )}
+          </>
           ) : (
             <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
           )}

@@ -1,6 +1,9 @@
-/* GlassCard — port of mobile/lib/core/widgets/glass_card.dart.
-   No backdrop-filter (deliberately removed by the Flutter team, glass_card.dart:11-22);
-   gradient fill + specular 1px border + soft ambient shadow alone reproduce the effect. */
+/* GlassCard — deep frosted liquid-glass surface.
+   Layers (bottom → top):
+     1. gradient fill + backdrop blur (frosts the ambient aurora behind it)
+     2. ::before — ambient top sheen (only when data-glow)
+     3. ::after  — luminous 1px gradient edge (mask-composite ring)
+   Content sits above all three via z-index. */
 
 .glass {
   position: relative;
@@ -8,42 +11,63 @@
   border: var(--glass-border);
   border-radius: var(--radius-md);
   box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
   overflow: hidden;
   isolation: isolate;
+  transition: box-shadow 0.45s var(--ease-out), border-color 0.45s var(--ease-out);
 }
 
-/* Larger radius for leaderboard rows + modal cards (AppTheme.cardRadius = 32) */
+.glass:hover {
+  box-shadow: var(--glass-shadow-hover);
+}
+
+/* Luminous gradient edge — a 1px ring drawn with mask-composite so the
+   border itself carries the light, brightest at the top-left specular. */
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--glass-edge);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Larger radius for leaderboard rows + modal cards */
 .glass[data-radius="lg"] {
   border-radius: var(--radius-card);
 }
 
-[data-theme="dark"] .glass[data-glow="true"]::before {
+/* Ambient top sheen — soft luminous wash falling from the top edge */
+.glass[data-glow="true"]::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -1px;
   border-radius: inherit;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--glass-sheen);
   pointer-events: none;
-  z-index: 1;
+  z-index: 0;
 }
 
-[data-theme="light"] .glass[data-glow="true"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
-  pointer-events: none;
+/* Keep children above the sheen layer */
+.glass > * {
+  position: relative;
   z-index: 1;
 }
 
 /* Padding helpers consumed by callers */
 .p {
-  padding: 22px;
+  padding: 24px;
 }
 
 .pLg {
-  padding: 28px;
+  padding: 30px;
 }
 
 /* Fill modifier — makes the card stretch to fill its flex/grid cell and become

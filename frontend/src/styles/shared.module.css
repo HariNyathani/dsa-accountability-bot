@@ -2,13 +2,24 @@
    token-driven. Replaces the global `.stats-grid`/`.card`/`.data-table` etc.
    from the legacy index.css with scoped module classes. */
 
-/* ── Stats grid ──────────────────────────────────────────────────────────── */
+/* ── Stats grid — tiles cascade in with a staggered rise ─────────────────── */
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 28px;
 }
+
+.statsGrid > * {
+  animation: tile-in 0.55s var(--ease-out) backwards;
+}
+
+.statsGrid > *:nth-child(1) { animation-delay: 0.02s; }
+.statsGrid > *:nth-child(2) { animation-delay: 0.07s; }
+.statsGrid > *:nth-child(3) { animation-delay: 0.12s; }
+.statsGrid > *:nth-child(4) { animation-delay: 0.17s; }
+.statsGrid > *:nth-child(5) { animation-delay: 0.22s; }
+.statsGrid > *:nth-child(6) { animation-delay: 0.27s; }
 
 .statsGrid[data-cols="4"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -33,13 +44,14 @@
   border-radius: var(--radius-card);
   padding: 26px;
   box-shadow: var(--glass-shadow);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease,
-    background 0.25s ease;
+  transition: transform 0.35s var(--ease-out), border-color 0.25s ease,
+    background 0.25s ease, box-shadow 0.35s var(--ease-out);
 }
 
 .cardHover:hover {
   transform: translateY(-2px);
   border-color: var(--border-strong);
+  box-shadow: var(--glass-shadow-hover);
 }
 
 .title {
@@ -101,10 +113,10 @@
 .table th {
   text-align: left;
   padding: 14px 18px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.7rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.09em;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -115,6 +127,7 @@
   font-size: 0.9rem;
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
   transition: background 0.15s ease;
 }
 
@@ -131,6 +144,10 @@
   background: var(--well-fill);
 }
 
+.table tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
 .row {
   cursor: pointer;
 }
@@ -138,7 +155,7 @@
 /* Rank / medals */
 .medal {
   font-size: 1.2rem;
-  filter: drop-shadow(0 2px 6px rgba(122, 82, 52, 0.25));
+  filter: drop-shadow(0 2px 8px color-mix(in srgb, var(--gold) 45%, transparent));
 }
 
 .rankNum {
@@ -153,6 +170,7 @@
   font-size: 0.82rem;
   font-weight: 800;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .username {
@@ -174,12 +192,14 @@
   font-size: 0.78rem;
   font-weight: 700;
   border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
 }
 
 .badgeActive {
-  background: color-mix(in srgb, var(--diff-easy) 14%, transparent);
+  background: color-mix(in srgb, var(--diff-easy) 13%, transparent);
   color: var(--diff-easy);
-  border-color: color-mix(in srgb, var(--diff-easy) 28%, transparent);
+  border-color: color-mix(in srgb, var(--diff-easy) 30%, transparent);
+  box-shadow: 0 0 14px -4px color-mix(in srgb, var(--diff-easy) 35%, transparent);
 }
 
 .badgeIdle {
@@ -209,13 +229,14 @@
   border-radius: 999px;
   overflow: hidden;
   max-width: 120px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .consBar .fill {
   height: 100%;
   border-radius: 999px;
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 8px rgba(122, 82, 52, 0.4);
+  transition: width 0.6s var(--ease-out);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* Empty inline state for charts */

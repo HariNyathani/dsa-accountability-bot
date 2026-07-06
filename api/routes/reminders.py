@@ -4,12 +4,17 @@ Reminder API endpoints.
 GET    /reminders/{user_id}  — view schedule + today's status
 POST   /reminders            — update reminder times
 DELETE /reminders/{user_id}  — reset to defaults
+
+Security: all three endpoints require authentication (401 for anonymous
+callers) and ownership verification (403 if the authenticated user does
+not own the target user_id). Fixes P2-01 (Reminders IDOR).
 """
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
+from api.middleware.auth import get_current_user
 from api.middleware.error_handler import BadRequestError, NotFoundError
 from api.schemas.common import APIResponse
 from api.schemas.reminders import (
@@ -46,12 +51,25 @@ async def _ensure(uid: str):
     return u, uid_int
 
 
+def _check_owner(user_id: str, current_user) -> None:
+    """Raise 401 if unauthenticated, 403 if authenticated but not the owner."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    c_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
+    if str(c_id) != str(user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.get(
     "/{user_id}",
     response_model=APIResponse[ReminderSchedule],
     summary="Get reminder schedule",
 )
-async def get_reminders(user_id: str):
+async def get_reminders(
+    user_id: str,
+    current_user=Depends(get_current_user),
+):
+    _check_owner(user_id, current_user)
     user, uid_int = await _ensure(user_id)
     s = await database.get_user_settings(uid_int)
     if not s:
@@ -73,8 +91,19 @@ async def get_reminders(user_id: str):
     response_model=APIResponse[ReminderSchedule],
     summary="Update reminder schedule",
 )
-async def update_reminders(body: ReminderUpdateRequest):
-    user, uid_int = await _ensure(body.user_id)
+async def update_reminders(
+    body: ReminderUpdateRequest,
+    current_user=Depends(get_current_user),
+):
+    # Auth check: reject anonymous callers immediately.
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Ownership: ignore any user_id the client sends in the body; always
+    # operate on the authenticated caller's own ID. This eliminates the
+    # body-supplied IDOR vector regardless of what body.user_id contains.
+    authed_id = str(current_user.id if hasattr(current_user, "id") else current_user.get("id"))
+    user, uid_int = await _ensure(authed_id)
     updates: dict = {}
 
     try:
@@ -99,7 +128,7 @@ async def update_reminders(body: ReminderUpdateRequest):
     # Return updated settings
     s = await database.get_user_settings(uid_int)
     return APIResponse(data=ReminderSchedule(
-        user_id=body.user_id,
+        user_id=authed_id,
         timezone=user.get("timezone", "Asia/Kolkata"),
         deadline=_fmt(s["deadline_hour"], s["deadline_minute"]),
         warn_time=_fmt(s["warn_hour"], s["warn_minute"]),
@@ -114,7 +143,11 @@ async def update_reminders(body: ReminderUpdateRequest):
     response_model=APIResponse[ReminderDeleteResponse],
     summary="Reset reminders to defaults",
 )
-async def delete_reminders(user_id: str):
+async def delete_reminders(
+    user_id: str,
+    current_user=Depends(get_current_user),
+):
+    _check_owner(user_id, current_user)
     _, uid_int = await _ensure(user_id)
     await database.reset_user_settings(uid_int)
     return APIResponse(data=ReminderDeleteResponse(user_id=user_id))

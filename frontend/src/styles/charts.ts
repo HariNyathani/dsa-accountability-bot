@@ -1,22 +1,23 @@
 /**
  * Recharts theme — centralized so charts re-theme instantly and no inline hex
  * leaks into pages. Reads pixel values from CSS custom properties at call time
- *(so theme toggles flow through without remounting the util).
+ * (so theme toggles flow through without remounting the util).
  */
 
 /** Tooltip panel styled to match the glass popover surface. */
 export const tooltipStyle: React.CSSProperties = {
-  background: "var(--bg-elevated)",
+  background: "color-mix(in srgb, var(--bg-elevated) 92%, var(--accent) 8%)",
   color: "var(--text-primary)",
   border: "1px solid var(--border-strong)",
   borderRadius: "14px",
   fontSize: "13px",
-  boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-  padding: "8px 12px",
+  boxShadow: "0 16px 40px -8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
+  padding: "10px 14px",
+  backdropFilter: "blur(12px)",
 };
 
 export const tooltipItemStyle = { color: "var(--text-primary)" };
-export const tooltipLabelStyle = { color: "var(--text-primary)" };
+export const tooltipLabelStyle = { color: "var(--text-secondary)", fontWeight: 600 };
 
 export const axisTick = { fill: "var(--chart-axis)", fontSize: 11 };
 export const axisTickBold = {
@@ -32,27 +33,27 @@ export const gridProps = {
 };
 
 /**
- * Categorical palette anchored on Chestnut Espresso + warm companions.
- * The accent (#7A5234) leads, with a curated set of complementary tones —
- * avoiding generic neon. Confidence/status ramp derived from difficulty tokens.
+ * Categorical palette — curated around the champagne-bronze brand accent.
+ * Warm metallics lead, balanced by muted sage / slate / mauve counterpoints.
+ * Every tone is desaturated enough to sit on glass in both themes; no neon.
  */
 export const PALETTE = [
-  "#7A5234", // Deep Chestnut Espresso
-  "#9E6F4A",
-  "#C99A6E",
-  "#5B7B9E",
-  "#6D8AB0",
-  "#A8B5A0",
-  "#8C6A4A",
-  "#B08968",
-  "#4A7A5C",
-  "#7A6A5A",
-  "#9E7B5A",
-  "#6A5234",
+  "#C98F5A", // molten bronze (brand)
+  "#E3BC8C", // champagne
+  "#7C93B5", // slate blue
+  "#93AE8C", // sage
+  "#B56D51", // terracotta clay
+  "#A98293", // dusty mauve
+  "#A8A06B", // olive gold
+  "#6FA3A0", // patina teal
+  "#9E5F63", // rosewood
+  "#8C7F70", // warm taupe
+  "#5B7B9E", // deep slate
+  "#8A5A34", // espresso
 ];
 
 export const ACCENT = "var(--accent)";
-export const ACCENT_SOFT = "rgba(122,82,52,0.6)";
+export const ACCENT_SOFT = "color-mix(in srgb, var(--accent) 60%, transparent)";
 
 /** Gradient area fill id helper — keeps ids unique per usage. */
 export function areaGradientId(id: string) {

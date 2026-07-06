@@ -3,9 +3,19 @@ Message handler — processes incoming Discord messages for DSA progress trackin
 
 Multi-user: checks if the message author is a registered user who tracks this
 channel. If so, logs their progress. Otherwise, silently ignores.
+
+Security (P3-07):
+  - Command-prefix gate: only runs the expensive NLP/progress pipeline if the
+    message begins with a known bot command prefix or contains a tracked OJ URL.
+    Plain chat messages are dropped immediately without any DB work.
+  - Per-user cooldown: ignores a second message from the same user if it arrives
+    within DISCORD_PIPELINE_COOLDOWN_SECS (default 2 s) of the previous one.
 """
 
 import logging
+import time
+from threading import Lock
+
 import discord
 
 from db import database
@@ -18,6 +28,50 @@ import json
 import config
 
 logger = logging.getLogger("dsa_bot.message_handler")
+
+# ── P3-07: Cheap pipeline gates ───────────────────────────────────────────────
+
+# Commands that should always trigger the full pipeline.
+_COMMAND_PREFIXES = (
+    "!qdone", "!qn", "!log", "!rest", "!done", "!cheatday",
+)
+
+# URL substrings indicating a tracked OJ submission link.
+_OJ_URL_PATTERNS = (
+    "leetcode.com/problems/",
+    "leetcode.com/submissions/",
+    "codeforces.com/contest/",
+    "codeforces.com/problemset/problem/",
+)
+
+# Per-user pipeline cooldown state.
+_PIPELINE_COOLDOWN_SECS: float = float(
+    __import__("os").getenv("DISCORD_PIPELINE_COOLDOWN_SECS", "2")
+)
+_pipeline_last: dict[int, float] = {}
+_pipeline_lock = Lock()
+
+
+def _should_run_pipeline(content: str) -> bool:
+    """True only for messages that warrant the full NLP/progress pipeline."""
+    lower = content.lower()
+    if any(lower.startswith(p) for p in _COMMAND_PREFIXES):
+        return True
+    if any(p in lower for p in _OJ_URL_PATTERNS):
+        return True
+    return False
+
+
+def _within_cooldown(user_id: int) -> bool:
+    """True (block) if the user triggered the pipeline too recently."""
+    now = time.monotonic()
+    with _pipeline_lock:
+        last = _pipeline_last.get(user_id)
+        if last is not None and (now - last) < _PIPELINE_COOLDOWN_SECS:
+            return True
+        _pipeline_last[user_id] = now
+        return False
+
 
 
 async def handle_message(message: discord.Message, bot: discord.Client):
@@ -74,7 +128,26 @@ async def handle_message(message: discord.Message, bot: discord.Client):
 
     logger.info(f"[GATE:PASS] user={message.author.id} — routing to progress_service")
 
+    # ── P3-07 Gate 1: Command-prefix / OJ-URL filter ─────────────────────────
+    # Only run the expensive NLP pipeline when the message is clearly bot-directed
+    # (known command prefix) or contains a tracked OJ URL. Plain chat messages
+    # (greetings, discussions, etc.) are dropped here with zero DB work.
+    if not _should_run_pipeline(content):
+        logger.debug(
+            f"[GATE:PIPELINE_SKIP] user={message.author.id} — "
+            f"no command prefix or OJ URL in content, skipping pipeline"
+        )
+        return
 
+    # ── P3-07 Gate 2: Per-user cooldown ──────────────────────────────────────
+    # Prevent the same user from hammering the pipeline in a tight burst
+    # (e.g. accidental rapid re-sends). Limit: one run per DISCORD_PIPELINE_COOLDOWN_SECS.
+    if _within_cooldown(message.author.id):
+        logger.debug(
+            f"[GATE:COOLDOWN] user={message.author.id} — "
+            f"triggered within cooldown window, ignoring"
+        )
+        return
 
     # Ensure user has a consistent users table entry (safety net)
     await database.ensure_user(message.author.id, str(message.author))

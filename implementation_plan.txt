@@ -1,0 +1,638 @@
+================================================================================
+DSA ACCOUNTABILITY BOT — SECURITY REMEDIATION IMPLEMENTATION PLAN
+Planner: Lead Security Architect (Claude)
+Consumer: Downstream coding agent (OpenCode / Minimax / etc.)
+Format: Plain text, dependency-ordered, execute top-to-bottom.
+================================================================================
+
+--------------------------------------------------------------------------------
+HOW TO USE THIS FILE
+--------------------------------------------------------------------------------
+- Execute modules IN ORDER. Later modules assume earlier ones are already done.
+- Each module is self-contained: Goal, Target Files, Agent Instructions,
+  Verification Step.
+- Do NOT refactor unrelated code. Make the minimal change that satisfies the
+  instruction. Preserve all existing public function signatures unless the
+  instruction explicitly says to change them.
+- After EACH module: run the Verification Step before moving on. If verification
+  fails, STOP and report — do not proceed to the next module.
+- Language: Python 3 (FastAPI + discord.py + psycopg2), PostgreSQL backend.
+- Every DB access helper follows the pattern:
+      def _sync(): with db_manager.get_connection() as conn: ...
+      return await _run_sync(_sync)
+  Keep that pattern when adding new DB helpers.
+
+--------------------------------------------------------------------------------
+DEPENDENCY GRAPH (why this order)
+--------------------------------------------------------------------------------
+Module 1 (DB constraints + pool)  -> foundation; Module 6 logic depends on the
+                                     UNIQUE constraints and advisory-lock helper.
+Module 2 (secrets/config)         -> foundation; Modules 3/4 auth depend on a
+                                     guaranteed-strong SESSION_SECRET.
+Module 3 (endpoint authz)         -> depends on Module 2.
+Module 4 (JWT lifecycle/OAuth)    -> depends on Modules 2 & 3.
+Module 5 (rate limiting)          -> depends on Module 3 (auth identity for
+                                     per-user limits).
+Module 6 (progress concurrency)   -> depends on Module 1 (constraints + lock).
+Module 7 (input validation)       -> independent, but pairs with Module 6.
+Module 8 (Discord privilege)      -> independent.
+Module 9 (CSRF)                   -> depends on Module 3/4 session model.
+Module 10 (docs exposure)         -> independent, do last.
+
+Severity legend: CRIT = Critical, HIGH = High, MED = Medium.
+
+================================================================================
+MODULE 1 — DATABASE CONCURRENCY: CONSTRAINTS & CONNECTION POOL
+Covers: P3-02 (TOCTOU limit races, schema side), P3-04 (pool exhaustion / thread
+safety). CRIT/HIGH. This is the FOUNDATION — do it first.
+================================================================================
+
+GOAL
+Make the database enforce the invariants that application code currently races
+on, and replace the non-thread-safe / non-blocking connection pool so that a
+burst of concurrent requests cannot crash the whole app.
+
+TARGET FILES
+- db/database.py                       (pool construction, ~lines 22, 36, 43, 51)
+- init_postgres.sql                    (add constraints / partial indexes)
+- db/migrations/003_concurrency_constraints.sql   (NEW FILE)
+
+AGENT INSTRUCTIONS
+1. CONNECTION POOL (P3-04) in db/database.py:
+   a. Change the import from:
+          from psycopg2.pool import SimpleConnectionPool
+      to:
+          from psycopg2.pool import ThreadedConnectionPool
+   b. Replace BOTH occurrences of
+          SimpleConnectionPool(5, 25, self.dsn)
+      (in init_pool() and in get_connection()) with:
+          ThreadedConnectionPool(5, 50, self.dsn)
+      i.e. minconn=5, maxconn=50. Read the max from an env var with a default:
+          minconn = int(os.getenv("DB_POOL_MIN", "5"))
+          maxconn = int(os.getenv("DB_POOL_MAX", "50"))
+          ThreadedConnectionPool(minconn, maxconn, self.dsn)
+   c. Wrap the getconn() call inside get_connection() in a bounded retry loop so
+      that a transient "connection pool exhausted" PoolError waits and retries
+      instead of 500-ing immediately. Example:
+          from psycopg2.pool import PoolError
+          import time
+          conn = None
+          for attempt in range(10):          # ~ up to 2s total
+              try:
+                  conn = self.pool.getconn()
+                  break
+              except PoolError:
+                  time.sleep(0.2)
+          if conn is None:
+              raise RuntimeError("DB pool exhausted after retries")
+      Keep the existing `with conn:` / finally putconn(conn) structure intact.
+
+2. NEW MIGRATION FILE db/migrations/003_concurrency_constraints.sql (P3-02):
+   Add DB-level guards. Use IF NOT EXISTS / partial unique indexes so the
+   migration is idempotent and does not blow up on existing duplicate data
+   (if duplicates exist, the CREATE will fail — see step 4).
+       -- One rest day per user per calendar day
+       CREATE UNIQUE INDEX IF NOT EXISTS idx_progress_one_rest_per_day
+           ON progress_logs (user_id, log_date)
+           WHERE message_type = 'rest';
+   NOTE: daily_status already has UNIQUE(user_id, date) — do NOT re-add it.
+
+3. Mirror the same CREATE UNIQUE INDEX statement into init_postgres.sql so fresh
+   installs get it too. Place it after the progress_logs table definition.
+
+4. DE-DUPLICATION GUARD: Before the CREATE UNIQUE INDEX in the migration, add a
+   cleanup that collapses any pre-existing duplicate rest rows so the index can
+   be built:
+       DELETE FROM progress_logs a
+       USING progress_logs b
+       WHERE a.message_type = 'rest' AND b.message_type = 'rest'
+         AND a.user_id = b.user_id AND a.log_date = b.log_date
+         AND a.id > b.id;
+
+VERIFICATION STEP
+- Static: grep db/database.py — confirm ZERO occurrences of "SimpleConnectionPool"
+  remain and "ThreadedConnectionPool" appears; confirm PoolError retry loop present.
+- DB: run the migration against a scratch DB; confirm it applies cleanly and
+  `\d progress_logs` (or information_schema) shows idx_progress_one_rest_per_day.
+- Functional: insert two 'rest' rows for the same (user_id, log_date) directly
+  via psql — the SECOND insert MUST fail with a unique-violation. A single
+  insert must still succeed.
+- Regression: start the API, hit any existing GET endpoint that reads the DB
+  (e.g. /leaderboard) and confirm it returns 200 (pool still works).
+
+================================================================================
+MODULE 2 — SECRETS & CONFIGURATION HARDENING
+Covers: P2-03 (JWT forgery via default SESSION_SECRET). CRIT.
+================================================================================
+
+GOAL
+Guarantee the app cannot run in production with a guessable JWT signing secret.
+
+TARGET FILES
+- config.py                            (~line 57, SESSION_SECRET default)
+- api/middleware/auth.py               (~lines 52, 58, secret usage)
+
+AGENT INSTRUCTIONS
+1. In config.py, locate the SESSION_SECRET assignment that currently defaults to
+   "change-me-to-a-random-secret-key". Replace the silent default with a
+   fail-fast rule:
+       SESSION_SECRET = os.getenv("SESSION_SECRET", "")
+       _INSECURE_DEFAULTS = {"", "change-me-to-a-random-secret-key"}
+       ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+       if SESSION_SECRET in _INSECURE_DEFAULTS or len(SESSION_SECRET) < 32:
+           if ENVIRONMENT in ("production", "prod"):
+               raise RuntimeError(
+                   "SESSION_SECRET must be set to a random value >= 32 chars in production."
+               )
+           else:
+               import logging
+               logging.getLogger("dsa_bot.config").warning(
+                   "SESSION_SECRET is weak/unset — acceptable only in development."
+               )
+2. Do NOT change how auth.py reads config.SESSION_SECRET; it should keep importing
+   the same symbol. Just confirm auth.py references config.SESSION_SECRET (not a
+   local hardcoded string).
+
+VERIFICATION STEP
+- With ENVIRONMENT=production and no SESSION_SECRET set, importing config.py MUST
+  raise RuntimeError.
+- With a 40-char SESSION_SECRET set, config imports cleanly and the API boots.
+- With ENVIRONMENT=development and no secret, it boots but logs the warning.
+- Confirm existing token creation/verification still round-trips (create a JWT,
+  verify it) when a proper secret IS set.
+
+================================================================================
+MODULE 3 — ENDPOINT AUTHENTICATION & AUTHORIZATION
+Covers: P2-01 (Reminders IDOR), P2-02 (activity log exposure). CRIT/HIGH.
+================================================================================
+
+GOAL
+Every endpoint that reads or writes a specific user's private data must (a)
+require a valid session and (b) verify the caller owns that user_id.
+
+TARGET FILES
+- api/routes/reminders.py              (~lines 54, 76, 117: GET/POST/DELETE)
+- api/routes/users.py                  (~line 568: GET /users/{id}/activity)
+- api/middleware/auth.py               (reuse existing get_current_user / owner check)
+
+AGENT INSTRUCTIONS
+1. Identify the existing ownership-verification helper. In api/routes/users.py
+   there is a `_verify_owner(user_id, current_user)` pattern already used by the
+   email/timezone routes. Reuse that SAME helper and the same
+   `current_user = Depends(get_current_user)` dependency.
+
+2. REMINDERS (P2-01): For each of the GET, POST, DELETE handlers in
+   api/routes/reminders.py:
+   - Add parameter: current_user = Depends(get_current_user)
+   - At the top of the handler, reject anonymous callers (401 if not current_user)
+     and enforce ownership: the reminder's target user_id MUST equal the
+     authenticated user's id. If the route takes a user_id/path param, compare it
+     against int(current_user.id) and raise HTTPException(403) on mismatch.
+   - If reminders are keyed only by the caller (no user_id in path), force the
+     handler to operate on int(current_user.id) and ignore any client-supplied id.
+
+3. ACTIVITY LOG (P2-02): In api/routes/users.py GET /users/{id}/activity
+   (~line 568):
+   - Add current_user = Depends(get_current_user) and call
+     _verify_owner(user_id, current_user) before any DB read. This route exposes
+     raw message_content, so it must be owner-only (NOT part of any public/cached
+     dashboard route). Do not add it to the public_cache path.
+
+4. Do NOT weaken the routes that are INTENTIONALLY public (e.g.
+   /users/{id}/dashboard-aggregate is documented public). Only lock the two
+   findings above.
+
+VERIFICATION STEP
+- Anonymous request (no Authorization header) to GET/POST/DELETE /reminders/*
+  MUST return 401.
+- Authenticated user A requesting user B's reminders or /users/B/activity MUST
+  return 403.
+- Authenticated user A requesting their OWN reminders/activity returns 200 with data.
+- Confirm the public dashboard-aggregate route still returns 200 anonymously
+  (unchanged).
+
+================================================================================
+MODULE 4 — JWT LIFECYCLE & OAUTH FLOW HARDENING
+Covers: P2-05 (30-day non-revocable JWT), P2-06 (token in deep-link URL),
+P2-11 (missing OAuth state). HIGH.
+================================================================================
+
+GOAL
+Shorten token lifetime, add a revocation path, keep the raw JWT out of URLs, and
+add CSRF protection to the OAuth login handshake.
+
+TARGET FILES
+- api/middleware/auth.py               (~line 29: token TTL / claims)
+- api/routes/auth.py                   (~lines 46, 60, 66, 168, 246, 342, 347)
+
+AGENT INSTRUCTIONS
+1. TOKEN TTL + REVOCATION (P2-05) in api/middleware/auth.py:
+   - Reduce access-token lifetime from 30 days to a short value (e.g. 24h) via
+     a config/env value ACCESS_TOKEN_TTL_HOURS (default 24).
+   - Add a `jti` (unique token id) and `iat` claim when minting tokens.
+   - Introduce a revocation check: create a `revoked_tokens` table
+     (jti TEXT PRIMARY KEY, revoked_at TIMESTAMPTZ DEFAULT NOW()) via a new
+     migration db/migrations/004_token_revocation.sql, and in the token-verify
+     path, reject any token whose jti is present in revoked_tokens.
+   - Add a POST /auth/logout endpoint that inserts the current token's jti into
+     revoked_tokens.
+   NOTE: keep it simple and synchronous with the existing _sync/_run_sync helper
+   pattern; do not introduce Redis.
+
+2. TOKEN OUT OF URL (P2-06) in api/routes/auth.py (~lines 246, 342, 347):
+   - The mobile OAuth callback currently embeds the full JWT in the redirect deep
+     link query string. Replace this with a SHORT-LIVED, single-use exchange code:
+     * On successful OAuth, generate a random opaque code, store
+       {code -> (jwt, expires_at ~60s, used=False)} server-side (a small table
+       oauth_exchange_codes or an in-process TTL dict is acceptable).
+     * Redirect to the deep link with ?code=<opaque> instead of ?token=<jwt>.
+     * Add POST /auth/exchange that accepts the code, validates it is unused and
+       unexpired, marks it used, and returns the JWT in the JSON response body
+       (NOT a URL).
+   - Ensure the raw JWT never appears in any redirect URL, log line, or
+     query string after this change.
+
+3. OAUTH STATE / LOGIN CSRF (P2-11) in api/routes/auth.py (~lines 46-66):
+   - Before redirecting the user to Discord, generate a random `state` value,
+     store it (signed cookie or server-side keyed by session), and include it in
+     the Discord authorize URL.
+   - In the OAuth callback, require the returned `state` to match the stored
+     value; reject (400) on missing/mismatch. Also verify the Discord `code`
+     is present.
+
+VERIFICATION STEP
+- Decode a freshly minted token: confirm exp is ~24h out (not 30d) and jti/iat
+  present.
+- Call POST /auth/logout, then reuse the same token on a protected endpoint —
+  MUST now return 401.
+- Complete the OAuth flow: confirm the redirect deep link contains ?code= and
+  NOT the JWT; confirm POST /auth/exchange returns the JWT once and a second
+  exchange of the same code fails.
+- Tamper the OAuth `state` on callback — MUST return 400. Normal flow succeeds.
+
+================================================================================
+MODULE 5 — RATE LIMITING & RESOURCE GUARDS
+Covers: P2-08 (OAuth endpoints), P2-09 (expensive unauth data endpoints),
+P3-03 (unbounded revision-review), P3-07 (Discord spam compute). MED/HIGH.
+================================================================================
+
+GOAL
+Bound request rates on abusable endpoints and cap expensive per-request work.
+
+TARGET FILES
+- api/app.py                           (register limiter middleware)
+- api/routes/auth.py                   (OAuth endpoints)
+- api/routes/analytics.py              (global topics, ~line 91)
+- api/routes/users.py                  (expensive unauth data endpoints)
+- api/routes/progress.py               (~line 383: /revision/review)
+- handlers/message_handler.py          (Discord pipeline early-exit)
+
+AGENT INSTRUCTIONS
+1. Add a rate-limiting dependency. Use slowapi (Flask-Limiter for Starlette) OR a
+   small custom in-memory token-bucket keyed by client IP (unauth) or user_id
+   (auth). Prefer slowapi if adding a dependency is acceptable; otherwise
+   implement a minimal middleware in api/middleware/ratelimit.py.
+   - Register the limiter in api/app.py.
+2. Apply limits (tune numbers via env, defaults given):
+   - P2-08 OAuth endpoints (login/callback/refresh in auth.py): 10 requests /
+     minute / IP.
+   - P2-09 unauthenticated expensive endpoints (analytics.py global topics,
+     any /users/{id}/* public aggregate that does full-table work): 30 / minute / IP.
+   - P3-03 POST /progress/revision/review: per-user limit, e.g. 60 / hour / user,
+     AND enforce a daily review cap in code (see Module 6 step 3 for the metric
+     side).
+3. P3-07 Discord spam early-exit in handlers/message_handler.py:
+   - BEFORE calling process_progress_submission, add a cheap gate: only run the
+     full pipeline if content starts with a known command prefix
+     (!qdone, !qn, !log, !rest, !done, !cheatday) OR contains a leetcode.com /
+     codeforces.com URL. Otherwise return early (the free-text NLP path is the
+     expensive one and should not run on every chat message).
+   - Additionally add a lightweight per-user cooldown (e.g. reject/ignore if the
+     same user triggered the pipeline < 2s ago) using an in-memory timestamp dict.
+
+VERIFICATION STEP
+- Hammer an OAuth endpoint > limit within a minute: excess requests return 429.
+- Same for the analytics/topics endpoint.
+- POST /progress/revision/review in a tight loop: requests beyond the per-user
+  limit return 429; the daily cap prevents unbounded row creation.
+- In Discord, post a plain chat message with no command/URL: confirm via logs the
+  fuzzy pipeline does NOT run; post "!qn 1": confirm it DOES run.
+
+================================================================================
+MODULE 6 — PROGRESS SERVICE: CONCURRENCY & BUSINESS LOGIC
+Covers: P3-01 (target_date forgery), P3-02 (TOCTOU app side), P3-03 (review
+metric inflation), P3-06 (question_count guard logic). CRIT/HIGH.
+Depends on Module 1 constraints + advisory-lock capability.
+================================================================================
+
+GOAL
+Close the streak/metric-forgery holes and make the limit checks atomic.
+
+TARGET FILES
+- services/progress_service.py         (~lines 254, 278-290, 632-667)
+- api/routes/progress.py               (~lines 56-64, 226-231, 456-467)
+- db/database.py                       (get_daily_question_count ~384; add lock
+                                        helper; counting queries ~514, ~748, ~897)
+
+AGENT INSTRUCTIONS
+1. TARGET_DATE VALIDATION (P3-01):
+   - In services/progress_service.py, the line
+         today = override_date if override_date else today_str(user_tz)
+     must be constrained for non-admin callers. Introduce a rule:
+     * Compute real_today = today_str(user_tz).
+     * If override_date is provided AND acting_user_id is None (i.e. NOT an admin
+       sudo call): only accept override_date if it is a valid YYYY-MM-DD, is NOT
+       in the future (override_date <= real_today), and is NOT older than a small
+       window (default 1 day; env BACKLOG_DAYS). Otherwise raise a returned
+       {"status":"error","feedback_message":"Invalid target_date"}.
+     * If acting_user_id is not None (admin sudo path), allow arbitrary
+       override_date (admin override is intentional and audited).
+   - Add a strict format check: parse override_date with
+     datetime.strptime(override_date, "%Y-%m-%d"); on ValueError return the error
+     result (do NOT let it bubble into a 500 later).
+
+2. ATOMIC LIMIT ENFORCEMENT (P3-02):
+   - Add a Postgres advisory-lock helper in db/database.py that serializes all
+     writes for a given user_id, e.g. a new async function
+     record_progress_atomic(...) OR a context that, within ONE connection/
+     transaction, does: pg_advisory_xact_lock(user_id) -> re-read the relevant
+     count -> insert -> mark_posted, all before the `with conn:` block commits.
+   - Refactor the rest-day path (progress_service.py:278-290) and the daily-count
+     path (:632-646 + save at :650) so the COUNT check and the INSERT happen under
+     the SAME advisory lock / transaction. The simplest correct approach:
+         def _sync():
+             with db_manager.get_connection() as conn:
+                 with conn.cursor() as cur:
+                     cur.execute("SELECT pg_advisory_xact_lock(%s)", (user_id,))
+                     # re-check monthly rest count / daily question count here
+                     # if over limit -> raise a sentinel -> caller returns error
+                     # else INSERT progress_logs + UPDATE daily_status
+     Keep behavior identical for the happy path; only the race window closes.
+   - Apply the SAME advisory-lock wrapping to the platform direct-insert path in
+     api/routes/progress.py:226-245 (the 200/day check + save + mark_posted).
+   - IMPORTANT consistency fix: the main pipeline caps at 25/day
+     (progress_service.py:642) while the platform path caps at 200/day
+     (progress.py:227). Unify these to a single config value DAILY_QUESTION_CAP
+     (default 25) so there is one source of truth.
+
+3. REVIEW METRIC EXCLUSION (P3-03):
+   - progress_logs has an is_review boolean column. Reviews must NOT inflate
+     first-time-solve totals. Add `AND is_review = FALSE` (or `is_review IS NOT
+     TRUE`) to the counting queries in db/database.py:
+       * get_message_count            (~lines 514-533)
+       * get_leaderboard_data msg_counts CTE   (~lines 748-767)
+       * get_admin_user_metrics total_questions subquery (~lines 897-915)
+       * get_daily_question_count     (~lines 384-395)  <-- so reviews also do not
+         consume the daily solve cap.
+   - Add a per-user daily review cap in api/routes/progress.py submit_revision_review
+     (default 100/day) BEFORE the save_progress_log call, to bound row creation.
+
+4. QUESTION_COUNT GUARD (P3-06, logic side; schema side is Module 7):
+   - In services/progress_service.py, the web_topics branch (~line 369-370) trusts
+     question_count without the positive-integer guard that parse_qdone enforces.
+     After building qdone_results from web_topics, reject any entry with
+     question_count < 1 (return an error result).
+   - Change the daily-cap guard from `if new_quantity > 0:` to check for the
+     presence of ANY positive entry, and compute new_quantity from validated
+     (>=1) counts only, so a zero/negative-net payload can no longer skip the cap
+     while still writing rows + granting streak credit.
+
+VERIFICATION STEP
+- P3-01: POST /progress with target_date = a future date -> 400/error. With
+  target_date = 30 days ago -> rejected for a normal user. With target_date =
+  today or yesterday -> accepted. Admin sudo path still logs arbitrary dates.
+- P3-02: Fire 5 concurrent POST /progress/rest on the 4th rest day of the month
+  -> exactly ONE succeeds bringing the total to 5? NO — total must not exceed 4;
+  the 5th+ concurrent requests return the monthly-limit error. Repeat for the
+  daily question cap.
+- P3-03: Submit 3 reviews, then read /leaderboard and /admin/users -> the
+  reviewer's total_questions did NOT increase from the reviews. Daily review cap
+  triggers after the configured number.
+- P3-06: POST /progress with a topic question_count of 0 or -5 -> 400/error; no
+  progress_logs row is written and streak does not advance.
+- Regression: a normal single-topic POST /progress and a normal !qdone in Discord
+  still log correctly and advance the streak by 1.
+
+================================================================================
+MODULE 7 — INPUT VALIDATION & SCHEMA HARDENING
+Covers: P3-05 (timezone injection), P3-06 (question_count schema). MED.
+================================================================================
+
+GOAL
+Reject invalid/abusable inputs at the API boundary via Pydantic.
+
+TARGET FILES
+- api/schemas/users.py                 (~line 11-12: TimezoneUpdateRequest)
+- api/schemas/progress.py              (~line 5-8: ProgressTopicLog;
+                                        ~line 14: LogProgressRequest.target_date)
+- api/routes/users.py                  (~line 339: update_user_timezone_route)
+
+AGENT INSTRUCTIONS
+1. TIMEZONE VALIDATION (P3-05):
+   - In api/schemas/users.py, add a Pydantic validator to TimezoneUpdateRequest
+     that rejects any value not accepted by pytz:
+         from pydantic import field_validator   # (or validator for pydantic v1)
+         import pytz
+         @field_validator("timezone")
+         def _valid_tz(cls, v):
+             if v not in pytz.all_timezones_set:
+                 raise ValueError("Unknown timezone")
+             return v
+     Match the codebase's Pydantic major version (check imports elsewhere).
+   - This mirrors the Discord path (bot.py cmd_settimezone) which already
+     validates via pytz.timezone(). The REST route must not write unvalidated tz.
+   - ANTI-ABUSE (streak banking): add a minimum interval between timezone changes.
+     Store users.timezone_updated_at; in update_user_timezone_route reject a
+     change if the last change was < TZ_CHANGE_COOLDOWN_MINUTES ago
+     (default 60) with HTTPException(429). (Add the column via a small migration
+     db/migrations/005_tz_cooldown.sql: ALTER TABLE users ADD COLUMN IF NOT EXISTS
+     timezone_updated_at TIMESTAMPTZ.)
+
+2. QUESTION_COUNT SCHEMA (P3-06):
+   - In api/schemas/progress.py, change ProgressTopicLog.question_count from a
+     bare `int` to a bounded field:
+         question_count: int = Field(..., ge=1, le=25)
+   - Add a validator to LogProgressRequest.target_date enforcing the YYYY-MM-DD
+     format (regex ^\d{4}-\d{2}-\d{2}$) so malformed dates are rejected at the
+     boundary (defense in depth alongside Module 6 step 1).
+
+VERIFICATION STEP
+- PUT /users/{id}/timezone with "timezone":"Mars/Phobos" -> 422 validation error;
+  with "America/Los_Angeles" -> 200. A second change within the cooldown -> 429.
+- POST /progress with question_count 0, -1, or 26 -> 422; with 1..25 -> accepted.
+- POST /progress with target_date "2026-13-99" or "notadate" -> 422.
+
+================================================================================
+MODULE 8 — DISCORD BOT PRIVILEGE MODEL
+Covers: P3-08 (guild "Administrator" == bot admin conflation). MED.
+================================================================================
+
+GOAL
+Restrict cross-user bot commands to the configured bot owner/admin only, not to
+any Discord guild administrator.
+
+TARGET FILES
+- bot.py                               (~lines 99-105 _is_admin; ~875-940 sudo_log)
+- config.py                            (BOT_OWNER_ID / ADMIN_DISCORD_ID)
+
+AGENT INSTRUCTIONS
+1. In bot.py, the current _is_admin() returns True if
+   ctx.author.guild_permissions.administrator. Split the trust model:
+   - Keep a helper _is_guild_admin(ctx) for benign, self-scoped conveniences if
+     any are needed, BUT create/repurpose _is_bot_owner(ctx) that returns True
+     ONLY when config.BOT_OWNER_ID is set and ctx.author.id == config.BOT_OWNER_ID
+     (optionally also allow a comma-separated ADMIN_DISCORD_ID allowlist).
+2. Gate ALL cross-user mutating commands on _is_bot_owner, NOT guild admin:
+   - !sudo_log  (bot.py ~879)
+   - the @user targeting branch in _resolve_target_user (bot.py ~146): change the
+     admin check there to _is_bot_owner so a guild admin can no longer run
+     commands against OTHER users.
+   - !admin forcesummary / users / missed may remain on guild-admin if desired,
+     but !sudo_log and any per-victim data mutation MUST be owner-only.
+3. Leave !qpurge / !qundo as-is — they are already correctly gated on
+   BOT_OWNER_ID (bot.py ~42).
+
+VERIFICATION STEP
+- As a guild admin who is NOT BOT_OWNER_ID, run "!sudo_log @victim qdone arrays 3"
+  -> bot replies "Admin only." (denied).
+- As BOT_OWNER_ID, the same command succeeds.
+- A normal (non-admin) user running "!qdone arrays 3" on themselves still works.
+- Note in the PR: the Manage-Messages escalation sub-claim was already safe (the
+  check was .administrator, never Manage Messages) — no change needed there.
+
+================================================================================
+MODULE 9 — BEARER-ONLY AUTH ENFORCEMENT (CSRF NOT APPLICABLE)
+Covers: P2-04 (originally "no CSRF tokens"). DOWNGRADED — see rationale.
+================================================================================
+
+ARCHITECTURE DECISION (authoritative)
+The Flutter mobile app authenticates STRICTLY via `Authorization: Bearer <token>`
+headers. It does NOT use session cookies. Classic CSRF requires the browser to
+auto-attach ambient credentials (cookies) to a cross-site request; a Bearer token
+lives in app-controlled storage and is never auto-attached by a browser, so a
+malicious third-party site CANNOT forge an authenticated request against this API.
+=> CSRF is NOT an applicable threat vector for this architecture. Finding P2-04 is
+   RECLASSIFIED as "not applicable" PROVIDED the API accepts credentials ONLY via
+   the Authorization header. This module's job is to VERIFY and LOCK IN that
+   precondition — NOT to build double-submit tokens or CSRF cookies.
+
+DO NOT IMPLEMENT: CSRF token cookies, double-submit tokens, X-CSRF-Token headers,
+or any per-request CSRF middleware. They add complexity with no security benefit
+for a bearer-only API.
+
+GOAL
+Guarantee the API has exactly ONE authentication transport (Authorization: Bearer)
+so the "CSRF-not-applicable" assumption cannot silently regress into a cookie
+fallback that WOULD be CSRF-exploitable.
+
+TARGET FILES
+- api/middleware/auth.py               (token extraction logic)
+- api/app.py                           (middleware / CORS config)
+- api/routes/auth.py                   (login/exchange response — no Set-Cookie)
+
+AGENT INSTRUCTIONS
+1. AUDIT the auth transport in api/middleware/auth.py:
+   - Confirm the session/user is resolved ONLY from the Authorization header
+     (Bearer scheme). If the code ALSO reads a token/session from request.cookies
+     or sets an auth cookie, REMOVE that cookie path so Bearer is the sole
+     transport. (The OAuth exchange from Module 4 already returns the JWT in a
+     JSON body, not a cookie — keep it that way; ensure no Set-Cookie for the
+     session token remains on any /auth response.)
+   - If the extraction rejects a missing/malformed Authorization header with 401,
+     that is correct — leave it.
+2. HARDEN CORS in api/app.py to reinforce the boundary:
+   - Do NOT use allow_origins=["*"] together with allow_credentials=True.
+   - Since auth is header-based, set allow_credentials=False and restrict
+     allow_origins to the known app/web origins (env: CORS_ALLOWED_ORIGINS,
+     comma-separated). This prevents a browser page from reading authenticated
+     responses cross-origin.
+3. DOCUMENT the decision inline: add a short comment block at the top of
+   api/middleware/auth.py stating "Auth is Bearer-header only; cookies are not an
+   accepted credential transport => CSRF is not applicable. Do not add cookie
+   auth without reintroducing CSRF protection."
+4. NOTE the one browser-facing leg — the OAuth login redirect — is already
+   protected against login-CSRF by the `state` parameter added in Module 4
+   (P2-11). No additional work here.
+
+VERIFICATION STEP
+- grep api/middleware/auth.py and api/routes/auth.py for `cookie` / `Set-Cookie`
+  -> there must be NO auth-session cookie read or set.
+- A request carrying ONLY a valid Bearer header succeeds (200); the same request
+  with the header removed returns 401 (no cookie fallback grants access).
+- Confirm CORS config does not combine wildcard origin with credentials.
+- Confirm the inline "CSRF not applicable / bearer-only" comment is present.
+
+================================================================================
+MODULE 10 — OPENAPI / DOCS EXPOSURE
+Covers: P2-10 (/docs, /redoc, /openapi.json always exposed). MED. Do this LAST.
+================================================================================
+
+GOAL
+Stop leaking the full admin API schema to anonymous users in production.
+
+TARGET FILES
+- api/app.py                           (~lines 49-51: FastAPI() docs config)
+
+AGENT INSTRUCTIONS
+1. Gate the interactive docs behind environment + auth:
+   - When ENVIRONMENT is production, construct FastAPI with docs_url=None,
+     redoc_url=None, openapi_url=None by default:
+         app = FastAPI(
+             docs_url=None if IS_PROD else "/docs",
+             redoc_url=None if IS_PROD else "/redoc",
+             openapi_url=None if IS_PROD else "/openapi.json",
+         )
+   - OPTIONAL: if docs are needed in prod, expose them behind an authenticated
+     route that checks require_admin before serving get_openapi()/get_swagger_ui.
+2. Read IS_PROD from the ENVIRONMENT var introduced in Module 2.
+
+VERIFICATION STEP
+- With ENVIRONMENT=production: GET /docs, /redoc, /openapi.json all return 404.
+- With ENVIRONMENT=development: all three still return 200 for local dev.
+- Confirm normal API routes still function in both modes.
+
+================================================================================
+GLOBAL POST-IMPLEMENTATION VERIFICATION (run after ALL modules)
+================================================================================
+1. Boot the API with a strong SESSION_SECRET and ENVIRONMENT=production; confirm
+   clean startup, no docs exposed, DB pool initializes.
+2. Run the existing test suite (if present). All prior passing tests must still pass.
+3. Smoke test the golden paths:
+   - Discord: !register, !qdone arrays 2, !rest, !streak  -> all behave as before.
+   - REST: OAuth login -> exchange code -> POST /progress -> GET dashboard.
+4. Re-run the Phase 2 / Phase 3 exploit attempts and confirm each is now blocked:
+   P2-01 IDOR (401/403), P2-03 forged token (rejected), P3-01 backdate (rejected),
+   P3-02 concurrent rest overflow (capped), P3-03 review inflation (excluded),
+   P3-04 pool flood (degrades gracefully, no crash), P3-06 negative count (422).
+5. Produce a short changelog mapping each finding ID -> commit(s).
+
+================================================================================
+FINDING -> MODULE TRACEABILITY MATRIX
+================================================================================
+P2-01 Reminders IDOR .................... Module 3
+P2-02 Activity log exposure ............. Module 3
+P2-03 JWT default secret ................ Module 2
+P2-04 No CSRF (reclassified: N/A for .... Module 9 (verify bearer-only; no
+      bearer-only auth) ................        CSRF tokens to build)
+P2-05 30-day non-revocable JWT .......... Module 4
+P2-06 Token in deep-link URL ............ Module 4
+P2-08 No OAuth rate limit ............... Module 5
+P2-09 No rate limit expensive endpoints . Module 5
+P2-10 OpenAPI docs exposed .............. Module 10
+P2-11 OAuth state missing ............... Module 4
+P3-01 target_date forgery ............... Module 6 (+7 schema)
+P3-02 TOCTOU limit races ................ Module 1 (constraints) + Module 6 (locks)
+P3-03 Review metric inflation ........... Module 6 (+5 rate limit)
+P3-04 Connection pool exhaustion ........ Module 1
+P3-05 Timezone injection/banking ........ Module 7
+P3-06 Unbounded question_count .......... Module 7 (schema) + Module 6 (guard)
+P3-07 Discord spam amplification ........ Module 5
+P3-08 Bot-admin privilege conflation .... Module 8
+
+WITHDRAWN (no action; documented for the record):
+P3-#1 streak double-credit, P3-#4 revision upsert race, P3-#8 streak side-effect
+on review, P3-#10 external API amplification, P3-#14 impersonation,
+P3-#7(orig) admin self-abuse. See Phase 3 report for rationale.
+================================================================================
+END OF PLAN
+================================================================================

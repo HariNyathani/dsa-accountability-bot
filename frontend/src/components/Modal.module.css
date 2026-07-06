@@ -9,13 +9,13 @@
   align-items: center;
   justify-content: center;
   padding: clamp(16px, 4vw, 40px);
-  background: rgba(10, 11, 16, 0.55);
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  background: rgba(8, 7, 6, 0.6);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
 }
 
 [data-theme="light"] .scrim {
-  background: rgba(60, 40, 25, 0.28);
+  background: rgba(60, 40, 25, 0.3);
 }
 
 .dialog {
@@ -27,8 +27,34 @@
   background: var(--glass-fill);
   border: var(--glass-border);
   border-radius: var(--radius-card);
-  box-shadow: var(--glass-shadow), 0 24px 64px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--glass-shadow), 0 32px 80px -12px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
   overflow: hidden;
+}
+
+/* Luminous gradient edge + top sheen, matching GlassCard's liquid surface */
+.dialog::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--glass-edge);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.dialog::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: var(--glass-sheen);
+  pointer-events: none;
 }
 
 /* Larger panels can opt into a max width override */

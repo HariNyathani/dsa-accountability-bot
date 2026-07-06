@@ -1,6 +1,8 @@
 import logging
 import json
+import os
 import re
+from datetime import datetime
 from db import database
 from utils.time_utils import today_str, now_iso
 from utils.topic_extractor import extract_topics
@@ -10,6 +12,13 @@ from utils.resolvers import resolve_problem, fuzzy_match_problem
 from utils.resolvers.detector import detect_platform
 
 logger = logging.getLogger("dsa_bot.progress_service")
+
+# Single source of truth for the daily question cap (P3-02 / Module 6).
+# api/routes/progress.py reads the same env var so both paths are unified.
+DAILY_QUESTION_CAP: int = int(os.getenv("DAILY_QUESTION_CAP", "25"))
+
+# How many calendar days into the past a non-admin may back-date a log (P3-01).
+BACKLOG_DAYS: int = int(os.getenv("BACKLOG_DAYS", "1"))
 
 
 # ── Multiline / Bullet-List Parser ──────────────────────────────────────────
@@ -251,7 +260,37 @@ async def process_progress_submission(
         user = await database.get_user(user_id)
 
     user_tz = user.get("timezone", "")
-    today = override_date if override_date else today_str(user_tz)
+    real_today = today_str(user_tz)
+
+    # P3-01: Target-date validation for non-admin callers.
+    if override_date is not None:
+        # Strict format check — catches injected strings before they reach the DB.
+        try:
+            override_dt = datetime.strptime(override_date, "%Y-%m-%d")
+        except ValueError:
+            return {
+                "status": "error",
+                "feedback_message": "❌ Invalid target_date format. Use YYYY-MM-DD.",
+            }
+
+        if acting_user_id is None:  # non-admin path
+            real_today_dt = datetime.strptime(real_today, "%Y-%m-%d")
+            if override_dt > real_today_dt:
+                return {
+                    "status": "error",
+                    "feedback_message": "❌ target_date cannot be in the future.",
+                }
+            if (real_today_dt - override_dt).days > BACKLOG_DAYS:
+                return {
+                    "status": "error",
+                    "feedback_message": (
+                        f"❌ target_date is too far in the past. "
+                        f"You may only back-date logs up to {BACKLOG_DAYS} day(s)."
+                    ),
+                }
+        # Admin path (acting_user_id is not None): any date is allowed.
+
+    today = override_date if override_date is not None else real_today
     now = now_iso(user_tz)
 
     # Removed anti-duplicate check to allow independent logs of the same topic
@@ -268,26 +307,17 @@ async def process_progress_submission(
         "source": source,
         "platform": "leetcode",  # default; overridden by platform-aware callers
     }
-    
+
     topics = []
     leetcode_matches = []  # Track successful fuzzy matches for feedback
-    
+
     content_lower = content.lower()
-    
+
     if msg_type == "rest":
-        if await database.has_rest_today(user_id, today):
-            return {
-                "status": "error",
-                "feedback_message": "❌ You've already used a Rest Day for today! One is enough—go relax or solve a quick problem. 🛌"
-            }
-            
-        current_month = today[:7]
-        rest_count = await database.get_monthly_rest_count(user_id, current_month)
-        if rest_count >= 4:
-            return {
-                "status": "error",
-                "feedback_message": "❌ You've used all 4 Rest Days for this month. Even a 5-minute Arrays session counts! Push through. ⚔️"
-            }
+        # P3-02 FIX: Rest-day limits are enforced ATOMICALLY inside
+        # database.save_progress_log_atomic() (advisory lock + check + INSERT in
+        # one transaction), matching the platform route. Here we only build the
+        # log entry; the limit sentinels are handled at the save call below.
         parsed_fields_dict["log"].append({
             "canonical_topic": "Rest",
             "normalized_topic": "Rest",
@@ -367,6 +397,15 @@ async def process_progress_submission(
         logger.info(f"[GATE:QDONE_QN] user={user_id} web_topics={web_topics is not None}")
         is_qn = content_lower.startswith("!qn")
         if web_topics is not None:
+            # P3-06: Validate question_count before trusting it.
+            # The parse_qdone path already enforces >=1; we enforce the same
+            # constraint on the web_topics path so the API cannot bypass it.
+            invalid = [t for t in web_topics if t.get("question_count", 1) < 1]
+            if invalid:
+                return {
+                    "status": "error",
+                    "feedback_message": "❌ question_count must be at least 1 for every topic.",
+                }
             qdone_results = [(t["canonical_topic"], t["question_count"], t.get("difficulty")) for t in web_topics]
         elif is_qn:
             # Aggressive extraction: pull every contiguous digit sequence from
@@ -628,26 +667,26 @@ async def process_progress_submission(
 
     parsed_fields_json = json.dumps(parsed_fields_dict)
 
-    # Rate Limits
-    new_quantity = sum(item.get("question_count", 0) for item in parsed_fields_dict.get("log", []))
-    
-    if new_quantity > 25:
+    # Per-command hard cap (single-request bound — NOT a race).
+    new_quantity = sum(
+        item.get("question_count", 0)
+        for item in parsed_fields_dict.get("log", [])
+        if item.get("question_count", 0) >= 1  # P3-06: ignore zero/negative entries
+    )
+
+    if new_quantity > DAILY_QUESTION_CAP:
         return {
             "status": "error",
-            "feedback_message": "❌ Limit exceeded. You can only log up to 25 questions per command to keep data realistic."
+            "feedback_message": f"❌ Limit exceeded. You can only log up to {DAILY_QUESTION_CAP} questions per command to keep data realistic."
         }
-        
-    if new_quantity > 0:
-        current_sum = await database.get_daily_question_count(user_id, today)
-        if (current_sum + new_quantity) > 25:
-            return {
-                "status": "error",
-                "feedback_message": "❌ Daily limit reached (25/day). Quality over quantity, legend! See you tomorrow."
-            }
 
-    # Save progress log
+    # ── P3-02 FIX: Atomic check-AND-insert ──────────────────────────────────
+    # The daily/rest limit re-check and the progress_logs INSERT now execute in
+    # ONE transaction under pg_advisory_xact_lock. The lock spans both the check
+    # and the write, so concurrent Discord + mobile submissions can no longer
+    # slip past the cap between a stale read and the insert (TOCTOU closed).
     log_platform = parsed_fields_dict.get("platform", "leetcode")
-    await database.save_progress_log(
+    insert_result = await database.save_progress_log_atomic(
         user_id=user_id,
         channel_id=channel_id,
         message_content=content,
@@ -658,7 +697,25 @@ async def process_progress_submission(
         parsed_fields=parsed_fields_json,
         platform=log_platform,
         is_review=is_review,
+        daily_cap=DAILY_QUESTION_CAP,
+        new_quantity=new_quantity,
     )
+
+    if insert_result == "already_rested":
+        return {
+            "status": "error",
+            "feedback_message": "❌ You've already used a Rest Day for today! One is enough—go relax or solve a quick problem. 🛏",
+        }
+    if insert_result == "monthly_limit":
+        return {
+            "status": "error",
+            "feedback_message": "❌ You've used all 4 Rest Days for this month. Even a 5-minute Arrays session counts! Push through. ⚔️",
+        }
+    if insert_result == "daily_limit":
+        return {
+            "status": "error",
+            "feedback_message": f"❌ Daily limit reached ({DAILY_QUESTION_CAP}/day). Quality over quantity, legend! See you tomorrow.",
+        }
 
     # ── Streak & daily_status: ONLY update for first-time solves ──────
     # Review sessions must NOT count toward the daily posting streak —

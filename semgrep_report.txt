@@ -1,0 +1,89 @@
+                   
+                   
+┌─────────────────┐
+│ 7 Code Findings │
+└─────────────────┘
+                                     
+  [36m[22m[24m  api/routes/auth.py[0m
+    ❯❱ python.lang.security.audit.logging.logger-credential-leak.python-
+       logger-credential-disclosure                                     
+          [31m[1m[24m❰❰ Blocking ❱❱[0m
+          Detected a python logger call with a potential hardcoded    
+          secret "Discord token exchange failed: %s" being logged.    
+          This may lead to secret credentials being exposed. Make sure
+          that the logger is not logging  sensitive information.      
+          Details: https://sg.run/ydNx                                
+                                                                      
+           89┆ logger.error("Discord token exchange failed: %s",
+               token_resp.text)                                 
+            ⋮┆----------------------------------------
+    ❯❱ python.lang.security.audit.logging.logger-credential-leak.python-
+       logger-credential-disclosure                                     
+          [31m[1m[24m❰❰ Blocking ❱❱[0m
+          Detected a python logger call with a potential hardcoded  
+          secret "Discord token exchange failed (mobile): %s" being 
+          logged. This may lead to secret credentials being exposed.
+          Make sure that the logger is not logging  sensitive       
+          information.                                              
+          Details: https://sg.run/ydNx                              
+                                                                    
+          191┆ logger.error("Discord token exchange failed
+               (mobile): %s", token_resp.text)            
+                                 
+  [36m[22m[24m  db/database.py[0m
+   ❯❯❱ python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-
+       execute-raw-query                                                  
+          [31m[1m[24m❰❰ Blocking ❱❱[0m
+          Avoiding SQL string concatenation: untrusted input          
+          concatenated with raw SQL query can result in SQL Injection.
+          In order to execute raw query safely, prepared statement    
+          should be used. SQLAlchemy provides TextualSQL to easily    
+          used prepared statement with named parameters. For complex  
+          SQL composition, use SQL Expression Language or Schema      
+          Definition Language. In most cases, SQLAlchemy ORM will be a
+          better option.                                              
+          Details: https://sg.run/2b1L                                
+                                                                      
+          283┆ cur.execute(f"UPDATE user_settings SET {sets} WHERE
+               user_id = %s", values)                             
+            ⋮┆----------------------------------------
+          514┆ cur.execute(f"""
+          515┆     SELECT COALESCE(SUM(
+          516┆         CASE
+          517┆             WHEN parsed_fields IS NOT NULL
+          518┆                  AND parsed_fields ? 'log'
+          519┆                  AND                        
+               jsonb_array_length(parsed_fields->'log') > 0
+          520┆             THEN (
+          521┆                 SELECT                          
+               COALESCE(SUM((elem->>'question_count')::int), 0)
+          522┆                 FROM                              
+               jsonb_array_elements(parsed_fields->'log') AS elem
+          523┆             )
+             [hid 10 additional lines, adjust with --max-lines-per-finding] 
+          668┆ cur.execute(f"UPDATE daily_status SET {column} = 1
+               WHERE user_id = %s AND date = %s", (user_id,      
+               target_date))                                     
+            ⋮┆----------------------------------------
+          1073┆ cur.execute(f"""
+          1074┆     SELECT
+          1075┆         rb.problem_id,
+          1076┆         rb.confidence_last,
+          1077┆         rb.next_review_at,
+          1078┆         rb.first_solved_at,
+          1079┆         rb.last_reviewed_at,
+          1080┆         rb.review_count,
+          1081┆         lp.title,
+          1082┆         lp.title_slug,
+             [hid 8 additional lines, adjust with --max-lines-per-finding] 
+          1201┆ cur.execute(
+          1202┆     f"""
+          1203┆     WITH ranked AS (
+          1204┆         SELECT
+          1205┆             rb.problem_id,
+          1206┆             rb.confidence_last,
+          1207┆             rb.next_review_at,
+          1208┆             rb.first_solved_at,
+          1209┆             rb.last_reviewed_at,
+          1210┆             rb.review_count,
+             [hid 19 additional lines, adjust with --max-lines-per-finding] 

@@ -14,6 +14,7 @@
   width: 100%;
   background: var(--well-fill);
   border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06);
   box-sizing: border-box;
   isolation: isolate;
 }
@@ -74,16 +75,24 @@
   gap: 8px;
   background: transparent;
   border: none;
-  color: color-mix(in srgb, var(--text-primary) 65%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 62%, transparent);
   font-weight: 500;
   font-size: 0.85rem;
   padding: 0 14px;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
-  transition: color 0.2s ease, font-weight 0.2s ease;
+  transition: color 0.25s ease, font-weight 0.25s ease, transform 0.25s var(--ease-spring);
   z-index: 2;
   min-width: 0;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+}
+
+.segment:active {
+  transform: scale(0.96);
 }
 
 /* Vertical nav segments stack + left-align, larger touch targets */
@@ -138,7 +147,7 @@
   background: var(--capsule-fill);
   border: var(--capsule-border);
   border-radius: inherit;
-  box-shadow: var(--capsule-shadow);
+  box-shadow: var(--capsule-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   z-index: 1;
   pointer-events: none;
 }
@@ -151,13 +160,13 @@
   background: var(--capsule-fill);
 }
 
-/* Vertical capsule pill — fills the segment block (main_shell.dart alignment maps to position) */
+/* Vertical capsule pill — sidebar nav: luminous glass block with accent glow */
 .track[data-orientation="vertical"] .pill {
   inset: 4px 6px;
-  background: var(--well-fill);
-  border: var(--glass-border);
+  background: var(--capsule-fill);
+  border: var(--capsule-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--capsule-glow);
 }
 
 /* ── Compact widths ──────────────────────────────────────────────────────── */

@@ -73,6 +73,28 @@
   }
 }
 
+/* Staggered tile entrance — fade + rise + settle (used by stats grids) */
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Specular sheen sweep — runs once on hover over glass CTAs/cards */
+@keyframes sheen-sweep {
+  from {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(240%) skewX(-18deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

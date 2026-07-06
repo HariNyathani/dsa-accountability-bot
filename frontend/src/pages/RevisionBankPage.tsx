@@ -90,6 +90,8 @@ export default function RevisionBankPage() {
     allRevisionItems,
     topicStats,
     totalCount,
+    totalReviews,
+    globalAvgConfidence,
     page,
     setPage,
     limit,
@@ -116,11 +118,9 @@ export default function RevisionBankPage() {
     refetch();
   };
 
-  const totalReviews = allRevisionItems.filter((i) => i.last_reviewed_at !== null).length;
-  const avgConfidence =
-    topicStats.length > 0
-      ? (topicStats.reduce((a, c) => a + c.avg_confidence, 0) / topicStats.length).toFixed(1)
-      : "0.0";
+  // Whole-bank aggregates are computed server-side (see /progress/revision/all)
+  // so they stay correct regardless of the current page in "All Problems".
+  const avgConfidence = globalAvgConfidence.toFixed(1);
 
   return (
     <>

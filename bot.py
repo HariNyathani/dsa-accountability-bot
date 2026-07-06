@@ -96,13 +96,52 @@ async def _require_registered(ctx: commands.Context) -> bool:
     return False
 
 
-def _is_admin(ctx: commands.Context) -> bool:
-    """Check if user is the bot owner or has admin perms."""
-    if config.BOT_OWNER_ID and ctx.author.id == config.BOT_OWNER_ID:
+def _is_bot_owner(ctx: commands.Context) -> bool:
+    """True ONLY for the configured bot owner(s) — the highest-trust tier.
+
+    Checks:
+    1. config.BOT_OWNER_ID (primary owner, set as integer in .env / Railway)
+    2. BOT_OWNER_ALLOWLIST (comma-separated Discord IDs for co-admins, optional)
+
+    This gate must be used for ALL cross-user mutating commands (P3-08):
+    - !sudo_log (logs progress on behalf of another user)
+    - @user targeting in commands like !register, !setchannel, etc.
+
+    Guild "Administrator" permission is NOT sufficient — a server admin
+    should never be able to mutate another bot user's streak or data.
+    """
+    caller_id = ctx.author.id
+    # Primary owner
+    if config.BOT_OWNER_ID and caller_id == config.BOT_OWNER_ID:
         return True
-    if ctx.author.guild_permissions.administrator:
-        return True
+    # Optional co-admin allowlist (comma-separated IDs in BOT_OWNER_ALLOWLIST)
+    import os
+    allowlist_raw = os.getenv("BOT_OWNER_ALLOWLIST", "")
+    if allowlist_raw:
+        allowlist = {int(x.strip()) for x in allowlist_raw.split(",") if x.strip().isdigit()}
+        if caller_id in allowlist:
+            return True
     return False
+
+
+def _is_guild_admin(ctx: commands.Context) -> bool:
+    """True for Discord guild administrators.
+
+    Suitable ONLY for read-only or self-scoped conveniences (e.g. !admin users,
+    !admin missed, !admin forcesummary).  Must NOT be used to gate cross-user
+    mutating commands — use _is_bot_owner() for those (P3-08).
+    """
+    return bool(ctx.guild and ctx.author.guild_permissions.administrator)
+
+
+def _is_admin(ctx: commands.Context) -> bool:
+    """Combined check: bot owner OR guild administrator.
+
+    Use this ONLY for cosmetic / read-only gating (e.g. help panel reveal).
+    For any command that mutates data on behalf of another user, call
+    _is_bot_owner() instead.
+    """
+    return _is_bot_owner(ctx) or _is_guild_admin(ctx)
 
 
 def _parse_channel_id(text: str) -> int:
@@ -142,8 +181,10 @@ async def _resolve_target_user(ctx: commands.Context, args: list[str]):
     if not mentioned_id or mentioned_id == ctx.author.id:
         return ctx.author.id, args, None
 
-    # A different user was mentioned — require admin
-    if not _is_admin(ctx):
+    # A different user was mentioned — require BOT OWNER trust (P3-08).
+    # Guild "Administrator" is NOT sufficient: it would let any server admin
+    # mutate another user's streak/data, which is a privilege escalation.
+    if not _is_bot_owner(ctx):
         return None, args, "❌ Only the bot owner can use commands on other users."
 
     return mentioned_id, args[:-1], None
@@ -876,7 +917,10 @@ async def cmd_admin(ctx: commands.Context, action: str = "", *, args: str = ""):
 async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
     """Admin God Mode: Log progress on behalf of another user.
     Usage: !sudo_log @user <rest|qdone ...|free text>"""
-    if not _is_admin(ctx):
+    # P3-08: Gate on _is_bot_owner, NOT guild administrator.
+    # Any Discord guild admin could otherwise log progress for other members,
+    # inflating streaks or erasing data — this must be owner-only.
+    if not _is_bot_owner(ctx):
         await ctx.send("❌ Admin only.")
         return
 

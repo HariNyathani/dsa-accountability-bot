@@ -1,9 +1,18 @@
 /* ──────────────────────────────────────────────────────────────────────────
    Auth Context — manages Discord OAuth session state across the app.
 
-   • On mount, checks /auth/me to restore an existing session (cookie-based)
-   • Provides login (redirect), logout, user data, and loading state
-   • All components can useAuth() to conditionally render personalized content
+   Bearer-only flow (Module 9 / backend security audit):
+   • JWT is stored in localStorage under 'dsa_token' (never in a cookie).
+   • On mount:
+       1. If ?code= is present in the URL, redeem it via POST /auth/exchange
+          to get the JWT, persist it, then clean the URL.
+       2. Otherwise restore an existing session from localStorage by calling
+          GET /auth/me with the stored token as Authorization: Bearer.
+   • All API calls attach the token via the Authorization: Bearer header
+     (handled centrally in api.ts / getAuthHeaders()).
+   • login()  → redirects to /auth/login (Discord OAuth).
+   • logout() → calls POST /auth/logout (revokes JTI on server), then
+                clears localStorage and React state.
    ────────────────────────────────────────────────────────────────────────── */
 
 import {
@@ -14,6 +23,20 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+
+const TOKEN_KEY = "dsa_token";
+const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+
+/** Read the stored JWT (or null if absent). */
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+/** Build the Authorization: Bearer header object for fetch() calls. */
+export function getAuthHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export interface AuthUser {
   id: string;
@@ -47,51 +70,90 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check for existing session on mount
   useEffect(() => {
     let cancelled = false;
 
-    async function checkSession() {
-      const hasSessionMarker = document.cookie.split("; ").some(
-        (c) => c === "dsa_session_exists=1" || c.startsWith("dsa_session_exists=")
-      );
-      if (!hasSessionMarker) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
+    async function bootstrap() {
       try {
-        const res = await fetch("/auth/me", { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
+        // ── Step 1: Handle the post-OAuth redirect (?code=<opaque>) ──────
+        const params = new URLSearchParams(window.location.search);
+        const exchangeCode = params.get("code");
+
+        if (exchangeCode) {
+          // Redeem the opaque exchange code for the JWT.
+          const res = await fetch(`${BASE}/auth/exchange`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: exchangeCode }),
+          });
+
+          if (res.ok) {
+            const { token } = await res.json();
+            if (token) {
+              localStorage.setItem(TOKEN_KEY, token);
+            }
+          }
+
+          // Clean the URL regardless of exchange outcome — the code is
+          // single-use and must never persist in browser history.
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+
+        // ── Step 2: Restore session from localStorage ─────────────────────
+        const storedToken = getStoredToken();
+        if (!storedToken) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+
+        const meRes = await fetch(`${BASE}/auth/me`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${storedToken}`,
+          },
+        });
+
+        if (meRes.ok) {
+          const data = await meRes.json();
           if (!cancelled && data.authenticated && data.user) {
             setUser(data.user);
           }
+        } else if (meRes.status === 401) {
+          // Token expired or revoked — clear stale storage.
+          localStorage.removeItem(TOKEN_KEY);
         }
       } catch {
-        // Not authenticated or network error — that's fine
+        // Network error during bootstrap — degrade gracefully, stay logged out.
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    checkSession();
+    bootstrap();
     return () => { cancelled = true; };
   }, []);
 
   const login = useCallback(() => {
-    // Redirect to backend auth route which redirects to Discord
-    window.location.href = "/auth/login";
+    // Redirect to backend auth route which starts the Discord OAuth dance.
+    window.location.href = `${BASE}/auth/login`;
   }, []);
 
   const logout = useCallback(async () => {
+    const token = getStoredToken();
     try {
-      await fetch("/auth/logout", {
+      // Revoke the JTI on the server so the token is dead immediately.
+      await fetch(`${BASE}/auth/logout`, {
         method: "POST",
-        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
     } catch {
-      // Best-effort
+      // Best-effort — clear local state regardless.
     }
+    localStorage.removeItem(TOKEN_KEY);
     setUser(null);
   }, []);
 

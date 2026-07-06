@@ -25,6 +25,8 @@ interface PagedHistory {
   items: RevisionItem[];
   total_count: number;
   topic_stats?: TopicStat[];
+  total_reviews?: number;
+  global_avg_confidence?: number;
 }
 
 export function useRevisionBank() {
@@ -67,6 +69,8 @@ export function useRevisionBank() {
     allRevisionItems: historyData?.items ?? [],
     topicStats: historyData?.topic_stats ?? [],
     totalCount: historyData?.total_count ?? 0,
+    totalReviews: historyData?.total_reviews ?? 0,
+    globalAvgConfidence: historyData?.global_avg_confidence ?? 0,
     page,
     setPage,
     limit,

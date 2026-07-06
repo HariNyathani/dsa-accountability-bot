@@ -169,10 +169,9 @@ export default function UserProfilePage() {
   const _tFreq = t?.frequency ?? [];
   const _tTop8 = _tFreq.slice(0, 8);
   const _tTop8Sum = _tTop8.reduce((s, f) => s + f.count, 0);
-  const _tOther = (t?.total_mentions ?? 0) - _tTop8Sum;
-  const topicPieData = _tOther > 0
-    ? [..._tTop8, { topic: `Other (${_tFreq.length - 8})`, count: _tOther }]
-    : _tTop8;
+  const totalMentions = t?.total_mentions ?? 0;
+  const _tOther = totalMentions - _tTop8Sum;
+  const topicPieData = _tTop8;
 
   return (
     <>
@@ -221,32 +220,40 @@ export default function UserProfilePage() {
       />
 
       <div className={sh.chartsGrid} style={{ marginTop: "24px" }}>
-        <GlassCard padded glow fill>
+        <GlassCard padded glow fill style={{ position: "relative" }}>
           <div className={sh.title}>📚 Topic Distribution</div>
           <div className={sh.bodyCenter}>
             {aggregate.loading ? <SkeletonCard /> : topicPieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
+              <>
+                <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
-                  <Pie
-                    data={topicPieData}
-                    dataKey="count"
-                    nameKey="topic"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    innerRadius={52}
-                    paddingAngle={2}
-                    label={({ topic, percent }: { topic: string; percent: number }) => `${topic} ${(percent * 100).toFixed(0)}%`}
-                    labelLine={{ stroke: "var(--border-strong)" }}
-                  >
-                    {topicPieData.map((_, i) => (
-                      <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#9E9E9E"} />
-                    ))}
-                  </Pie>
-                  <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
+                <Pie
+                  data={topicPieData}
+                  dataKey="count"
+                  nameKey="topic"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  innerRadius={52}
+                  paddingAngle={2}
+                  label={({ topic, count }: { topic: string; count: number }) =>
+                    `${topic} ${((count / Math.max(1, totalMentions)) * 100).toFixed(0)}%`}
+                  labelLine={{ stroke: "var(--border-strong)" }}
+                >
+                  {topicPieData.map((_, i) => (
+                    <Cell key={i} fill={i < 8 ? PALETTE[i % PALETTE.length] : "#8C8177"} />
+                  ))}
+                </Pie>
+                <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
+              </PieChart>
+            </ResponsiveContainer>
+            {_tOther > 0 && (
+              <div style={{ position: "absolute", bottom: "16px", right: "20px", fontSize: "0.85rem", color: "var(--text-dim)", fontWeight: 500 }}>
+                Other: {((_tOther / Math.max(1, totalMentions)) * 100).toFixed(0)}%
+              </div>
+            )}
+          </>
+          ) : (
               <EmptyState icon="📚" title="No topics yet" message="Start posting DSA progress to see topic analysis." />
             )}
           </div>

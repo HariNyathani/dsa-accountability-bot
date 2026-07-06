@@ -142,3 +142,15 @@ class RevisionBankPage(BaseModel):
         default_factory=list,
         description="All topic confidence aggregates, sorted weakest-first.",
     )
+    total_reviews: int = Field(
+        0,
+        description=(
+            "Whole-bank count of distinct problems reviewed at least once "
+            "beyond their initial solve (review_count > 1). Not a sum of "
+            "review_count values."
+        ),
+    )
+    global_avg_confidence: float = Field(
+        0.0,
+        description="Mean confidence_last across the user's entire revision bank.",
+    )

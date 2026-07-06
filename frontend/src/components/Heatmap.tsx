@@ -133,26 +133,6 @@ const Heatmap: React.FC<HeatmapProps> = ({ data, restDates, activeDays, currentS
           </div>
         </div>
 
-        {/* Visually-hidden data table for screen readers — same data, accessible form. */}
-        <table className="sr-only" aria-label="Activity by day">
-          <thead>
-            <tr><th>Date</th><th>Questions</th><th>Status</th></tr>
-          </thead>
-          <tbody>
-            {months.flatMap((m) => m.dates).filter((d): d is Date => d !== null).map((date) => {
-              const dateStr = formatDate(date);
-              const count = data[dateStr] || 0;
-              const isRest = restDates?.has(dateStr) ?? false;
-              return (
-                <tr key={dateStr}>
-                  <td>{date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</td>
-                  <td>{count}</td>
-                  <td>{isRest ? "Rest day" : count > 0 ? "Active" : "Inactive"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
 
         <div className={s.legend}>
           <span>Less</span>

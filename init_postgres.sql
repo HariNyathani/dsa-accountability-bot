@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS progress_logs (
 
 CREATE INDEX IF NOT EXISTS idx_progress_logs_user_date ON progress_logs(user_id, log_date);
 
+-- Security: one rest day per user per calendar date (P3-02 / Module 1)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_progress_one_rest_per_day
+    ON progress_logs (user_id, log_date)
+    WHERE message_type = 'rest';
+
 CREATE TABLE IF NOT EXISTS daily_status (
     id                SERIAL PRIMARY KEY,
     user_id           BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,

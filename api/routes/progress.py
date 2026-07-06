@@ -365,12 +365,15 @@ async def get_all_revision_items(
             user_id, page, limit, filter_mode=filter_mode,
         )
         topic_data = await database.get_revision_topic_confidence(user_id)
+        summary    = await database.get_revision_summary_stats(user_id)
         return RevisionBankPage(
-            items        = [RevisionBankItem(**item) for item in page_data["items"]],
-            total_count  = page_data["total_count"],
-            page         = page,
-            limit        = limit,
-            topic_stats  = [TopicConfidenceStat(**t) for t in topic_data],
+            items                 = [RevisionBankItem(**item) for item in page_data["items"]],
+            total_count           = page_data["total_count"],
+            page                  = page,
+            limit                 = limit,
+            topic_stats           = [TopicConfidenceStat(**t) for t in topic_data],
+            total_reviews         = summary["total_reviews"],
+            global_avg_confidence = summary["global_avg_confidence"],
         )
     except HTTPException:
         raise

@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Base reset + typography + globals
+   Base reset + ambient atmosphere + typography + globals
    ══════════════════════════════════════════════════════════════════════════ */
 
 *,
@@ -14,6 +14,10 @@ html {
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Scaffold color lives on <html> so the fixed aurora layers on <body>
+     can paint above it but below all content. */
+  background: var(--bg-scaffold);
+  transition: background-color 0.35s ease;
 }
 
 html,
@@ -23,13 +27,40 @@ body {
 
 body {
   font-family: var(--font);
-  background: var(--bg-scaffold);
+  background: transparent;
   color: var(--text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01" on;
   overflow-x: hidden;
-  transition: background-color 0.35s ease, color 0.35s ease;
+  transition: color 0.35s ease;
+}
+
+/* ── Ambient aurora — fixed luminous halos behind everything ─────────────── */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(52% 42% at 14% -6%, var(--halo-a), transparent 64%),
+    radial-gradient(44% 38% at 88% 0%, var(--halo-b), transparent 60%),
+    radial-gradient(70% 52% at 50% 118%, var(--halo-c), transparent 66%);
+  transition: opacity 0.35s ease;
+}
+
+/* ── Film grain — kills gradient banding, adds tactile depth ─────────────── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
 }
 
 #root {
@@ -51,8 +82,9 @@ h2,
 h3,
 h4 {
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--text-primary);
+  text-wrap: balance;
 }
 
 button {
@@ -67,7 +99,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(122, 82, 52, 0.25);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--text-primary);
 }
 
@@ -89,10 +121,13 @@ textarea {
 *::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+  background-clip: padding-box;
 }
 
 /* ── Focus ring (accessibility) ───────────────────────────────────────────── */
@@ -100,6 +135,7 @@ textarea {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */
@@ -140,4 +176,11 @@ textarea {
 .recharts-default-legend-item text {
   color: var(--text-secondary) !important;
   fill: var(--text-secondary) !important;
+}
+
+/* Pie label connectors + labels pick up theme ink instead of default black */
+.recharts-pie-label-text {
+  fill: var(--text-secondary) !important;
+  font-size: 11.5px;
+  font-weight: 600;
 }

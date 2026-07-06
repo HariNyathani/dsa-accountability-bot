@@ -34,12 +34,15 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition: transform 0.25s var(--ease-spring), border-color 0.2s ease,
+    background 0.2s ease, box-shadow 0.25s ease;
 }
 .row:hover {
   transform: translateX(4px);
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
   background: var(--bg-card-hover);
+  box-shadow: -3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent),
+    0 8px 24px -12px rgba(0, 0, 0, 0.35);
 }
 
 .rowMain {
