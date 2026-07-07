@@ -45,4 +45,4 @@ Thumbs.db
 #scrap
 local.db
 test_rest.py
-sanitize_db.py
+sanitize_db.pyvenv/

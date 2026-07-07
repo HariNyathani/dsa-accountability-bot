@@ -3,30 +3,13 @@ User-related Pydantic schemas.
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 class EmailUpdateRequest(BaseModel):
     email: str
 
 class TimezoneUpdateRequest(BaseModel):
-    """Payload for PUT /users/{id}/timezone.
-
-    The ``timezone`` value is validated against the pytz canonical timezone
-    database at parse time so invalid/injected strings are rejected with a
-    standard 422 Unprocessable Entity response before they reach the DB (P3-05).
-    """
     timezone: str
-
-    @field_validator("timezone")
-    @classmethod
-    def _valid_tz(cls, v: str) -> str:
-        import pytz
-        if v not in pytz.all_timezones_set:
-            raise ValueError(
-                f"Unknown timezone '{v}'. "
-                "Use a valid IANA timezone name (e.g. 'Asia/Kolkata', 'America/New_York')."
-            )
-        return v
 
 class UsernameUpdateRequest(BaseModel):
     user_id: str

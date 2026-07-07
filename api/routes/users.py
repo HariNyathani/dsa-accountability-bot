@@ -340,56 +340,12 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
     _verify_owner(user_id, current_user)
     resolved = await _get_user_or_404(user_id, current_user)
     uid_int = resolved["user_id"]
-
-    # P3-05: Enforce minimum interval between timezone changes.
-    # Rapid TZ-flipping can be abused to bank streaks by manipulating what
-    # "today" means. A cooldown of TZ_CHANGE_COOLDOWN_MINUTES (default 60)
-    # makes this attack impractical without blocking legitimate use.
     import asyncio
-    import os
-    from datetime import datetime, timezone as _tz
-
-    COOLDOWN_MINUTES = int(os.getenv("TZ_CHANGE_COOLDOWN_MINUTES", "60"))
-
-    def _get_and_update():
+    def _update():
         with database.db_manager.get_connection() as conn:
             with conn.cursor() as cur:
-                # Read current timezone_updated_at
-                cur.execute(
-                    "SELECT timezone_updated_at FROM users WHERE user_id = %s",
-                    (uid_int,),
-                )
-                row = cur.fetchone()
-                last_updated = row[0] if row else None
-
-                if last_updated is not None:
-                    now_utc = datetime.now(_tz.utc)
-                    # last_updated may be timezone-aware or naive depending on
-                    # psycopg2 config; normalise to UTC for comparison.
-                    if last_updated.tzinfo is None:
-                        last_updated = last_updated.replace(tzinfo=_tz.utc)
-                    elapsed_minutes = (now_utc - last_updated).total_seconds() / 60
-                    if elapsed_minutes < COOLDOWN_MINUTES:
-                        remaining = int(COOLDOWN_MINUTES - elapsed_minutes) + 1
-                        return ("cooldown", remaining)
-
-                # All checks passed — update both fields atomically
-                cur.execute(
-                    "UPDATE users SET timezone = %s, timezone_updated_at = NOW() WHERE user_id = %s",
-                    (payload.timezone, uid_int),
-                )
-                return ("ok", None)
-
-    check, remaining = await asyncio.to_thread(_get_and_update)
-    if check == "cooldown":
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Timezone changed too recently. "
-                f"Please wait {remaining} more minute(s) before changing again."
-            ),
-        )
-
+                cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (payload.timezone, uid_int))
+    await asyncio.to_thread(_update)
     return await _get_user_response(user_id, current_user)
 
 
@@ -607,16 +563,11 @@ async def get_user_topics(user_id: str):
     "/{user_id}/activity",
     response_model=APIResponse[UserActivityResponse],
     summary="Get recent user activity",
-    description="Returns the user's latest progress logs. Owner-only: requires authentication and ownership. Raw message_content is private data.",
+    description="Returns the user's latest progress logs for a timeline feed. Publicly accessible without authentication.",
 )
-async def get_user_activity(
-    user_id: str,
-    limit: int = Query(10, ge=1, le=50),
-    current_user=Depends(get_current_user),
-):
-    # Owner-only — raw message_content is private. Fixes P2-02.
-    _verify_owner(user_id, current_user)
-    resolved = await _get_user_or_404(user_id, current_user)
+async def get_user_activity(user_id: str, limit: int = Query(10, ge=1, le=50)):
+    # Public route — no auth required
+    resolved = await _get_user_or_404(user_id)
     uid_int = resolved["user_id"]
 
     logs = await database.get_recent_progress_logs(uid_int, limit=limit)

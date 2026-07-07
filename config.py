@@ -23,14 +23,7 @@ def _safe_int(key: str, default: str = "0") -> int:
 # ── Discord (bot-level) ─────────────────────────────────────────────────────
 DISCORD_BOT_TOKEN: str = os.getenv("DISCORD_BOT_TOKEN", "")
 ADMIN_CHANNEL_ID: int = _safe_int("ADMIN_CHANNEL_ID")
-BOT_OWNER_ID: int = _safe_int("BOT_OWNER_ID")  # primary owner — full bot-admin access
-
-# P3-08: Optional comma-separated list of Discord user IDs who share bot-owner
-# trust level (co-admins).  These IDs may use !sudo_log and @user cross-user
-# commands just like BOT_OWNER_ID.  Guild "Administrator" permission is never
-# sufficient — use this allowlist for intentional elevation only.
-# Example: BOT_OWNER_ALLOWLIST="123456789012345678,987654321098765432"
-# (Read at runtime in bot.py:_is_bot_owner — no reload needed.)
+BOT_OWNER_ID: int = _safe_int("BOT_OWNER_ID")  # optional: restrict admin commands
 
 # ── Email (Gmail SMTP — bot-level credentials) ──────────────────────────────
 GMAIL_ADDRESS: str = os.getenv("GMAIL_ADDRESS", "")
@@ -61,29 +54,8 @@ DISCORD_OAUTH_MOBILE_REDIRECT_URI: str = os.getenv(
 )
 
 # ── Session / JWT ────────────────────────────────────────────────────────
-# SECURITY: SESSION_SECRET must be a strong, randomly generated value in
-# production. Generating one: python -c "import secrets; print(secrets.token_hex(32))"
-SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
+SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-to-a-random-secret-key")
 COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
-
-# ── Environment ───────────────────────────────────────────────────────────
-# Used by Module 10 (docs gating) and the secret strength check below.
-ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development").lower()
-
-# Fail-fast secret strength check (P2-03 — JWT forgery via default secret)
-_INSECURE_DEFAULTS = {"", "change-me-to-a-random-secret-key"}
-if SESSION_SECRET in _INSECURE_DEFAULTS or len(SESSION_SECRET) < 32:
-    if ENVIRONMENT in ("production", "prod"):
-        raise RuntimeError(
-            "SESSION_SECRET must be set to a random value >= 32 characters in production. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
-        )
-    else:
-        import logging as _logging
-        _logging.getLogger("dsa_bot.config").warning(
-            "SESSION_SECRET is weak or unset — this is acceptable only in development. "
-            "Set a strong SESSION_SECRET before deploying to production."
-        )
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")

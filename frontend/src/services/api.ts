@@ -2,13 +2,7 @@
    Centralized API client — single point of contact with FastAPI backend.
    In dev, Vite proxies /api → http://localhost:8000.
    In production, set VITE_API_BASE_URL to the deployed API URL.
-
-   Auth: Bearer-only (Module 9 / backend security audit).
-   Every request automatically injects Authorization: Bearer <token> from
-   localStorage via getAuthHeaders(). No cookies are used or sent.
    ────────────────────────────────────────────────────────────────────────── */
-
-import { getAuthHeaders } from "../contexts/AuthContext";
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -23,14 +17,9 @@ class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "include",
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      // Inject Bearer token from localStorage (Bearer-only auth, Module 9).
-      ...getAuthHeaders(),
-      // Caller-supplied headers last so they can override if needed.
-      ...init?.headers,
-    },
   });
 
   if (!res.ok) {
@@ -49,14 +38,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function publicRequest<T>(path: string, init?: RequestInit): Promise<{ data: T }> {
   const url = `${BASE}${path}`;
   const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "include",
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      // Inject Bearer token when available — public endpoints also benefit
-      // from auth context so the API can return personalised data.
-      ...getAuthHeaders(),
-      ...init?.headers,
-    },
   });
 
   if (!res.ok) {
