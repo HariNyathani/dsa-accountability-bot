@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
     final_hour        INTEGER DEFAULT 22,
     final_minute      INTEGER DEFAULT 30,
     email_hour        INTEGER DEFAULT 23,
-    email_minute      INTEGER DEFAULT 0
+    email_minute      INTEGER DEFAULT 0,
+    srs_enrolled      BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS progress_logs (

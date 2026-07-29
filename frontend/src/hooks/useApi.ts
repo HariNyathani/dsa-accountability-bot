@@ -5,6 +5,8 @@ interface UseApiState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
+  /** Machine-readable error code from ApiError (e.g. "SRS_NOT_ENROLLED"), if any. */
+  errorCode: string | null;
   refetch: () => void;
 }
 
@@ -29,6 +31,7 @@ export function useApi<T>(
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);
@@ -51,6 +54,7 @@ export function useApi<T>(
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setErrorCode(null);
 
     fetcherRef.current(ctl.signal)
       .then((res) => {
@@ -59,6 +63,8 @@ export function useApi<T>(
       .catch((err) => {
         if (cancelled) return;
         if (err?.name === "AbortError") return;
+        // Preserve any machine-readable code (e.g. SRS_NOT_ENROLLED) from ApiError.
+        setErrorCode(err?.code ?? null);
         // Friendly message for network failures (offline, CORS, server down).
         if (err instanceof TypeError && /fetch|network|load/i.test(err.message)) {
           setError("Couldn't reach the server. Check your connection and retry.");
@@ -73,5 +79,5 @@ export function useApi<T>(
     return () => { cancelled = true; ctl.abort(); };
   }, [tick, enabled, ...deps]); // fetcherRef is a stable ref, no eslint-disable needed
 
-  return { data, loading, error, refetch };
+  return { data, loading, error, errorCode, refetch };
 }

@@ -175,6 +175,20 @@ async def on_ready():
         )
     )
 
+    # Sync slash commands (/srs). Guild-scoped sync is instant; global sync can
+    # take up to ~1 hour to propagate. Set GUILD_ID for instant registration.
+    try:
+        if config.GUILD_ID:
+            guild = discord.Object(id=config.GUILD_ID)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            logger.info(f"Slash commands synced to guild {config.GUILD_ID} ({len(synced)} command(s)).")
+        else:
+            synced = await bot.tree.sync()
+            logger.info(f"Slash commands synced globally ({len(synced)} command(s)); may take up to 1h to appear.")
+    except Exception as exc:
+        logger.error(f"Failed to sync slash commands: {exc}", exc_info=True)
+
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -337,7 +351,7 @@ async def cmd_register(ctx: commands.Context, *, mention: str = ""):
         username = str(member) if member else str(target_id)
 
     is_new = await database.register_user(
-        target_id, username, timezone=config.DEFAULT_TIMEZONE
+        target_id, username, timezone=config.DEFAULT_TIMEZONE, srs_enrolled=False
     )
     if is_admin_action:
         status = "registered" if is_new else "reactivated"
@@ -356,6 +370,7 @@ async def cmd_register(ctx: commands.Context, *, mention: str = ""):
             "`!setdeadline HH:MM` — set deadline\n"
             "`!setreminders HH:MM,HH:MM,HH:MM` — warn,final,email\n"
             "`!settimezone Asia/Kolkata` — set timezone\n"
+            "`/srs` — enable the Revision Bank (spaced-repetition reviews)\n"
             "`!mysettings` — view your config"
         ), inline=False)
     else:
@@ -371,6 +386,123 @@ async def cmd_register(ctx: commands.Context, *, mention: str = ""):
 async def cmd_setup(ctx: commands.Context):
     """Alias for !register."""
     await cmd_register(ctx)
+
+
+# ── SRS Enrollment Commands ──────────────────────────────────────────────────
+
+@bot.command(name="srs-enroll")
+async def cmd_srs_enroll(ctx: commands.Context, *, mention: str = ""):
+    """Admin: enroll a user in the SRS Revision Bank. Usage: !srs-enroll @user"""
+    if not _is_admin(ctx):
+        await ctx.send("❌ Admin only.")
+        return
+    target_id, _, err = await _resolve_target_user(ctx, mention.split() if mention else [])
+    if err:
+        await ctx.send(err)
+        return
+    if not target_id or not await database.is_registered(target_id):
+        await ctx.send("❌ User not registered.")
+        return
+    await database.set_srs_enrolled(target_id, True)
+    await ctx.send(f"✅ Enrolled <@{target_id}> in the Revision Bank.")
+
+
+@bot.command(name="srs-unenroll")
+async def cmd_srs_unenroll(ctx: commands.Context, *, mention: str = ""):
+    """Admin: unenroll a user from the SRS Revision Bank. Usage: !srs-unenroll @user"""
+    if not _is_admin(ctx):
+        await ctx.send("❌ Admin only.")
+        return
+    target_id, _, err = await _resolve_target_user(ctx, mention.split() if mention else [])
+    if err:
+        await ctx.send(err)
+        return
+    if not target_id or not await database.is_registered(target_id):
+        await ctx.send("❌ User not registered.")
+        return
+    await database.set_srs_enrolled(target_id, False)
+    await ctx.send(f"🔕 Unenrolled <@{target_id}> from SRS. Their data is preserved.")
+
+
+# ── /srs Slash Command ───────────────────────────────────────────────────────
+
+def _srs_status_embed(enrolled: bool) -> discord.Embed:
+    if enrolled:
+        return discord.Embed(
+            title="🧠 Revision Bank — Enrolled",
+            description=(
+                "You're enrolled in the Spaced Repetition System.\n\n"
+                "• You'll receive a **daily DM** at 8 AM listing problems due for review.\n"
+                "• Your confidence ratings after each solve are saved to schedule future reviews.\n"
+                "• Visit the **Revision Bank** dashboard to see your full queue."
+            ),
+            color=0x2ECC71,
+        )
+    return discord.Embed(
+        title="🔕 Revision Bank — Unenrolled",
+        description=(
+            "You're currently unenrolled from the Spaced Repetition System.\n\n"
+            "• You will **not** receive daily review DMs.\n"
+            "• Your revision data is **preserved** — re-enrolling restores your full queue.\n"
+            "• Confidence prompts after solves are paused."
+        ),
+        color=0xE74C3C,
+    )
+
+
+class SrsToggleView(discord.ui.View):
+    """Ephemeral view with Enroll / Unenroll buttons for the /srs command."""
+
+    def __init__(self, user_id: int, currently_enrolled: bool):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+        self.currently_enrolled = currently_enrolled
+        # Per-user custom_id keeps interactions from colliding across concurrent menus.
+        self.enroll_btn.custom_id = f"srs_enroll_{user_id}"
+        self.unenroll_btn.custom_id = f"srs_unenroll_{user_id}"
+        # Grey out the button matching the current state so it's obvious at a
+        # glance which one the user is already in (not just from the embed).
+        self.enroll_btn.disabled = currently_enrolled
+        self.unenroll_btn.disabled = not currently_enrolled
+
+    @discord.ui.button(label="✅ Enroll in Revision Bank", style=discord.ButtonStyle.success)
+    async def enroll_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your menu.", ephemeral=True)
+            return
+        await database.set_srs_enrolled(self.user_id, True)
+        await interaction.response.edit_message(
+            embed=_srs_status_embed(enrolled=True),
+            view=SrsToggleView(self.user_id, currently_enrolled=True),
+        )
+
+    @discord.ui.button(label="🔕 Unenroll", style=discord.ButtonStyle.danger)
+    async def unenroll_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This is not your menu.", ephemeral=True)
+            return
+        await database.set_srs_enrolled(self.user_id, False)
+        await interaction.response.edit_message(
+            embed=_srs_status_embed(enrolled=False),
+            view=SrsToggleView(self.user_id, currently_enrolled=False),
+        )
+
+
+@bot.tree.command(name="srs", description="Manage your Revision Bank / Spaced Repetition enrollment")
+async def slash_srs(interaction: discord.Interaction):
+    """Show the user's current SRS enrollment status with Enroll/Unenroll buttons."""
+    if not await database.is_registered(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ You're not registered yet. Run `!register` first.", ephemeral=True
+        )
+        return
+
+    enrolled = await database.is_srs_enrolled(interaction.user.id)
+    await interaction.response.send_message(
+        embed=_srs_status_embed(enrolled=enrolled),
+        view=SrsToggleView(user_id=interaction.user.id, currently_enrolled=enrolled),
+        ephemeral=True,
+    )
 
 
 @bot.command(name="unregister")

@@ -64,7 +64,14 @@ export function useRevisionBank() {
   const dueData = (due.data as RevisionItem[] | null) ?? null;
   const historyData = (history.data as PagedHistory | null) ?? null;
 
+  // The backend returns 403 { code: "SRS_NOT_ENROLLED" } for unenrolled users;
+  // surface that as a dedicated flag so the page can show the enroll CTA.
+  const notEnrolled =
+    due.errorCode === "SRS_NOT_ENROLLED" ||
+    history.errorCode === "SRS_NOT_ENROLLED";
+
   return {
+    notEnrolled,
     dueItems: dueData ?? [],
     allRevisionItems: historyData?.items ?? [],
     topicStats: historyData?.topic_stats ?? [],

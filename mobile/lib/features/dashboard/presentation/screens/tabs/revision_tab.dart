@@ -6,6 +6,7 @@ import '../../../../../core/widgets/glass_card.dart';
 import '../../../../../core/widgets/skeleton_card.dart';
 import '../../../data/models/user_stats.dart';
 import '../../providers/progress_provider.dart';
+import '../../../../profile/presentation/providers/user_profile_provider.dart';
 import '../../widgets/all_problems_view.dart';
 import '../../widgets/overdue_problems_view.dart';
 
@@ -68,6 +69,9 @@ class _RevisionTabState extends State<RevisionTab> {
       bottom: false,
       child: Consumer<ProgressProvider>(
         builder: (context, provider, _) {
+          if (provider.srsNotEnrolled) {
+            return _buildNotEnrolledState(context, theme, colorScheme);
+          }
           return RefreshIndicator(
             onRefresh: _refresh,
             color: colorScheme.primary,
@@ -109,6 +113,64 @@ class _RevisionTabState extends State<RevisionTab> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // ── Not-Enrolled Empty State ────────────────────────────────────────────────
+
+  Widget _buildNotEnrolledState(
+      BuildContext context, ThemeData theme, ColorScheme colorScheme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('🧠', style: TextStyle(fontSize: 56)),
+            const SizedBox(height: 20),
+            Text(
+              'Revision Bank Locked',
+              style: theme.textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "You haven't enrolled in the Spaced Repetition System yet.\n"
+              "Enrolling lets the bot track your confidence scores and "
+              "send daily review reminders.",
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            FilledButton.icon(
+              onPressed: () async {
+                final profileProvider = context.read<UserProfileProvider>();
+                final progressProvider = context.read<ProgressProvider>();
+                try {
+                  await profileProvider.setSrsEnrolled(true);
+                  await progressProvider.fetchAllRevisionItems();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content:
+                          Text('✅ Enrolled! Your revision queue is loading.'),
+                    ));
+                  }
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Failed to enroll. Please try again.'),
+                    ));
+                  }
+                }
+              },
+              icon: const Icon(Icons.school_outlined),
+              label: const Text('Enroll in Revision Bank'),
+            ),
+          ],
+        ),
       ),
     );
   }

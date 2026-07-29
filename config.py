@@ -24,6 +24,9 @@ def _safe_int(key: str, default: str = "0") -> int:
 DISCORD_BOT_TOKEN: str = os.getenv("DISCORD_BOT_TOKEN", "")
 ADMIN_CHANNEL_ID: int = _safe_int("ADMIN_CHANNEL_ID")
 BOT_OWNER_ID: int = _safe_int("BOT_OWNER_ID")  # optional: restrict admin commands
+# Optional: set to your server's guild ID for INSTANT slash-command registration.
+# When unset (0), slash commands sync globally (can take up to ~1 hour to appear).
+GUILD_ID: int = _safe_int("GUILD_ID")
 
 # ── Email (Gmail SMTP — bot-level credentials) ──────────────────────────────
 GMAIL_ADDRESS: str = os.getenv("GMAIL_ADDRESS", "")

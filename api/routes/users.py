@@ -36,6 +36,7 @@ from api.schemas.users import (
     UserActivityResponse,
     EmailUpdateRequest,
     TimezoneUpdateRequest,
+    SrsEnrollmentRequest,
     UsernameUpdateRequest,
     HeatmapResponse,
     UserDifficulty,
@@ -346,6 +347,26 @@ async def update_user_timezone_route(user_id: str, payload: TimezoneUpdateReques
             with conn.cursor() as cur:
                 cur.execute("UPDATE users SET timezone = %s WHERE user_id = %s", (payload.timezone, uid_int))
     await asyncio.to_thread(_update)
+    return await _get_user_response(user_id, current_user)
+
+
+@router.patch(
+    "/{user_id}/settings/srs",
+    response_model=APIResponse[UserDetail],
+    summary="Toggle SRS/Revision Bank enrollment",
+    description="Enroll or unenroll the user from the Spaced Repetition System. "
+                "Never deletes revision_bank data — access is paused/resumed.",
+)
+async def update_srs_enrollment(
+    user_id: str,
+    body: SrsEnrollmentRequest,
+    current_user = Depends(get_current_user),
+):
+    # Only the profile owner may change their own enrollment.
+    _verify_owner(user_id, current_user)
+    resolved = await _get_user_or_404(user_id, current_user)
+    uid_int = resolved["user_id"]
+    await database.set_srs_enrolled(uid_int, body.enrolled)
     return await _get_user_response(user_id, current_user)
 
 

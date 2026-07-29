@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRevisionBank, type RevisionItem } from "../hooks/useRevisionBank";
+import { useAuth } from "../contexts/AuthContext";
+import { api } from "../services/api";
 import GlassCard from "../components/GlassCard";
 import LiquidCapsule from "../components/LiquidCapsule";
 import Modal from "../components/Modal";
@@ -86,6 +88,7 @@ export default function RevisionBankPage() {
   const [currentTab, setCurrentTab] = useState<TabKey>("today");
   const [selectedProblem, setSelectedProblem] = useState<RevisionItem | null>(null);
   const {
+    notEnrolled,
     dueItems,
     allRevisionItems,
     topicStats,
@@ -101,6 +104,21 @@ export default function RevisionBankPage() {
     submitReview,
   } = useRevisionBank();
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+
+  const { user: authUser } = useAuth();
+  const [srsEnrolling, setSrsEnrolling] = useState(false);
+
+  const handleEnroll = async () => {
+    if (!authUser?.id) return;
+    setSrsEnrolling(true);
+    try {
+      await api.updateSrsEnrollment(authUser.id, true);
+      refetch();
+    } catch (e) {
+      console.error(e);
+    }
+    setSrsEnrolling(false);
+  };
 
   // Reset to page 1 when switching to the "progress" tab so the aggregate
   // stats (totalCount, topicStats) are always from page 1.
@@ -139,6 +157,21 @@ export default function RevisionBankPage() {
         }
       />
 
+      {notEnrolled ? (
+        <GlassCard padded glow style={{ textAlign: "center", padding: "60px 32px" }}>
+          <div style={{ fontSize: "3rem", marginBottom: 16 }}>🧠</div>
+          <h2 style={{ marginBottom: 8 }}>Revision Bank Locked</h2>
+          <p style={{ color: "var(--text-secondary)", maxWidth: 400, margin: "0 auto 28px" }}>
+            You haven't enrolled in the Spaced Repetition System yet.
+            Enrolling lets the bot track your confidence scores and send
+            daily review reminders.
+          </p>
+          <Button variant="primary" onClick={handleEnroll} disabled={srsEnrolling}>
+            {srsEnrolling ? "Enrolling…" : "✅ Enroll in Revision Bank"}
+          </Button>
+        </GlassCard>
+      ) : (
+      <>
       {error && <div className={s.error}>{error}</div>}
 
       {currentTab === "today" && (
@@ -302,6 +335,8 @@ export default function RevisionBankPage() {
           </div>
         )}
       </Modal>
+      </>
+      )}
     </>
   );
 }

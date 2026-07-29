@@ -8,10 +8,27 @@ const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
+}
+
+/**
+ * FastAPI returns `detail` either as a string (plain errors) or as an object
+ * `{ code, message }` (e.g. the SRS_NOT_ENROLLED 403). Normalize both into a
+ * throwable ApiError that carries an optional machine-readable `code`.
+ */
+function toApiError(body: any, res: Response): ApiError {
+  const detail = body?.detail;
+  if (detail && typeof detail === "object") {
+    const code: string | undefined = detail.code;
+    const message: string = detail.message ?? detail.code ?? res.statusText;
+    return new ApiError(message, res.status, code);
+  }
+  return new ApiError(detail ?? body?.error ?? res.statusText, res.status);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -24,7 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.detail ?? body.error ?? res.statusText, res.status);
+    throw toApiError(body, res);
   }
 
   return res.json();
@@ -49,7 +66,7 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<{ dat
       return { data: null as unknown as T };
     }
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.detail ?? body.error ?? res.statusText, res.status);
+    throw toApiError(body, res);
   }
 
   return res.json();
@@ -137,6 +154,14 @@ export const api = {
   updateTimezone: (userId: string, timezone: string, init?: RequestInit) =>
     request<APIResponse<UserDetail>>(`/users/${userId}/timezone`, { method: "PUT", body: JSON.stringify({ timezone }), ...init }),
 
+  // User self-toggle — PATCH /users/{userId}/settings/srs
+  updateSrsEnrollment: (userId: string, enrolled: boolean, init?: RequestInit) =>
+    request<APIResponse<UserDetail>>(`/users/${userId}/settings/srs`, {
+      method: "PATCH",
+      body: JSON.stringify({ enrolled }),
+      ...init,
+    }),
+
   // Progress
   logProgress: (data: { intent_type: string, topics: { canonical_topic: string, question_count: number, difficulty?: string }[], note?: string, target_date?: string }, init?: RequestInit) =>
     request<APIResponse<any>>("/progress", { method: "POST", body: JSON.stringify(data), ...init }),
@@ -158,6 +183,18 @@ export const api = {
 
   // Admin Panel — protected by require_admin on the backend
   adminUsers: (init?: RequestInit) => request<APIResponse<{ users: any[]; total: number }>>("/admin/users", init),
+
+  // Admin SRS controls — POST /admin/users/{userId}/srs-enroll|srs-unenroll
+  adminSrsEnroll: (userId: string, init?: RequestInit) =>
+    request<APIResponse<{ status: string; message: string; user_id?: string }>>(
+      `/admin/users/${userId}/srs-enroll`,
+      { method: "POST", ...init }
+    ),
+  adminSrsUnenroll: (userId: string, init?: RequestInit) =>
+    request<APIResponse<{ status: string; message: string; user_id?: string }>>(
+      `/admin/users/${userId}/srs-unenroll`,
+      { method: "POST", ...init }
+    ),
   adminMissedToday: (init?: RequestInit) => request<APIResponse<{ users: any[]; total: number }>>("/admin/missed-today", init),
   adminSudoLog: (data: { user_id: string; topic: string; count: number; difficulty: string }, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/sudo-log", {

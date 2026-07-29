@@ -59,6 +59,7 @@ class _ProfileTabState extends State<ProfileTab> {
         username: p.username,
         discordUsername: p.discordUsername,
         timezone: p.timezone,
+        srsEnrolled: p.srsEnrolled,
         rank: p.leaderboardRank,
         isLoading: p.isLoading,
       ),
@@ -369,6 +370,66 @@ class _ProfileTabState extends State<ProfileTab> {
                       ? CrossFadeState.showSecond
                       : CrossFadeState.showFirst,
                   duration: const Duration(milliseconds: 250),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 0, color: colorScheme.outline),
+
+          // Revision Bank (SRS) enrollment row.
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Row(
+              children: [
+                _prefIcon(colorScheme, Icons.school_outlined),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Revision Bank (SRS)',
+                          style: theme.textTheme.bodyLarge
+                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(
+                        snap.srsEnrolled
+                            ? 'Enrolled — daily review DMs active'
+                            : 'Unenrolled — tap to enable',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch.adaptive(
+                  value: snap.srsEnrolled,
+                  activeTrackColor: colorScheme.primary,
+                  onChanged: (on) async {
+                    final provider = context.read<UserProfileProvider>();
+                    final progressProvider =
+                        context.read<ProgressProvider>();
+                    try {
+                      await provider.setSrsEnrolled(on);
+                      // Keep the (kept-alive) Revision tab in sync: clears its
+                      // stuck "locked" state on re-enroll, locks it on unenroll.
+                      await progressProvider.onSrsEnrollmentChanged(on);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(on
+                              ? '✅ Enrolled in Revision Bank'
+                              : '🔕 Unenrolled. Your data is preserved.'),
+                          duration: const Duration(seconds: 2),
+                        ));
+                      }
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Failed to update SRS enrollment.'),
+                        ));
+                      }
+                    }
+                  },
                 ),
               ],
             ),
@@ -734,6 +795,7 @@ typedef _ProfileSnap = ({
   String? username,
   String? discordUsername,
   String timezone,
+  bool srsEnrolled,
   int? rank,
   bool isLoading,
 });

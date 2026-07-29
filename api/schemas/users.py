@@ -15,6 +15,9 @@ class UsernameUpdateRequest(BaseModel):
     user_id: str
     username: str
 
+class SrsEnrollmentRequest(BaseModel):
+    enrolled: bool
+
 
 class UserBase(BaseModel):
     """Core user fields exposed by the API."""
@@ -38,6 +41,7 @@ class UserSettings(BaseModel):
     final_minute: int = 0
     email_hour: int = 23
     email_minute: int = 30
+    srs_enrolled: bool = True
 
 
 class UserDetail(UserBase):

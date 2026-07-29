@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Body, Request, Query
+from fastapi import status as http_status
 from typing import Optional, List
 
 from api.schemas.progress import (
@@ -21,6 +22,23 @@ def require_auth(request: Request) -> int:
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return int(user.id)
+
+
+async def _require_srs_enrolled(user_id: int) -> None:
+    """Raise 403 with a machine-readable code if the user is not enrolled in SRS.
+
+    The frontend keys off ``detail.code == 'SRS_NOT_ENROLLED'`` to show the
+    enrollment empty-state CTA rather than a generic error.
+    """
+    from db import database
+    if not await database.is_srs_enrolled(user_id):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "SRS_NOT_ENROLLED",
+                "message": "Please enroll to access the Revision Bank.",
+            },
+        )
 
 @router.post("", response_model=LogProgressResponse)
 async def log_progress(
@@ -318,6 +336,7 @@ async def get_due_revision_items(
     """
     try:
         from db import database
+        await _require_srs_enrolled(user_id)
         items = await database.get_due_revision_items(user_id, filter_mode=filter_mode)
         return items
     except HTTPException:
@@ -361,6 +380,7 @@ async def get_all_revision_items(
     """
     try:
         from db import database
+        await _require_srs_enrolled(user_id)
         page_data  = await database.get_all_revision_items(
             user_id, page, limit, filter_mode=filter_mode,
         )
@@ -410,6 +430,7 @@ async def submit_revision_review(
     import json
 
     try:
+        await _require_srs_enrolled(user_id)
         # ── Step 1: Validate problem exists in leetcode_problems ──────
         # We use the resolver to look up the problem — it will return None
         # if the question_id is not in our local DB.

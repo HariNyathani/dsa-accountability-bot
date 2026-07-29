@@ -115,6 +115,20 @@ class ConfidenceView(discord.ui.View):
         self._resolved = True
         self.stop()  # disables all children immediately
 
+        # Belt-and-suspenders: a user can unenroll while a prompt is still live
+        # (up to a 60s window). Never write to revision_bank in that case.
+        if not await database.is_srs_enrolled(self.user_id):
+            logger.info(f"[SRS:VIEW] user={self.user_id} not enrolled — skipping upsert")
+            if self.message:
+                try:
+                    await self.message.edit(
+                        content="🔕 Revision Bank is disabled for your account.",
+                        view=None,
+                    )
+                except Exception:
+                    pass
+            return
+
         interval = CONFIDENCE_INTERVAL_DAYS[score]
         next_review = (
             datetime.now(timezone.utc) + timedelta(days=interval)

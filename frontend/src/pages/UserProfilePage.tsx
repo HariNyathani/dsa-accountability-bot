@@ -52,14 +52,34 @@ export default function UserProfilePage() {
   const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
   const [usernameReason, setUsernameReason] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [srsEnrolled, setSrsEnrolled] = useState(false);
+  const [srsSaving, setSrsSaving] = useState(false);
+  const [srsSaved, setSrsSaved] = useState(false);
 
   useEffect(() => {
     if (isOwner && user.data) {
       setEmailInput(user.data.email || "");
       setTzInput(user.data.timezone || "Asia/Kolkata");
       setUsernameInput(user.data.username || "");
+      setSrsEnrolled(user.data.settings?.srs_enrolled ?? true);
     }
   }, [user.data, isOwner]);
+
+  const handleToggleSrs = async () => {
+    if (!isOwner) return;
+    setSrsSaving(true);
+    setSrsSaved(false);
+    try {
+      await api.updateSrsEnrollment(resolvedUserId, !srsEnrolled);
+      setSrsEnrolled((v) => !v);
+      setSrsSaved(true);
+      user.refetch();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update SRS enrollment.");
+    }
+    setSrsSaving(false);
+  };
 
   const handleSaveEmail = async () => {
     if (!isOwner) return;
@@ -419,6 +439,43 @@ export default function UserProfilePage() {
                   {tzSaving ? "Saving…" : "Save Timezone"}
                 </Button>
                 {tzSaved && <span className={s.savedTag}>✅ Saved</span>}
+              </div>
+            </GlassCard>
+          </div>
+
+          <div className={s.settings}>
+            <GlassCard padded glow>
+              <div className={sh.title}>🧠 Revision Bank (SRS)</div>
+              <p className={s.settingsBody}>
+                The Spaced Repetition System sends you a daily morning DM with
+                problems due for review and tracks your confidence scores.
+                Unenrolling pauses reminders without deleting your data.
+              </p>
+              <div className={s.fieldRow} style={{ alignItems: "center", gap: 16 }}>
+                <span style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  background: srsEnrolled
+                    ? "color-mix(in srgb, var(--diff-easy) 15%, transparent)"
+                    : "color-mix(in srgb, var(--text-secondary) 10%, transparent)",
+                  color: srsEnrolled ? "var(--diff-easy)" : "var(--text-secondary)",
+                  border: `1px solid ${srsEnrolled
+                    ? "color-mix(in srgb, var(--diff-easy) 30%, transparent)"
+                    : "var(--border)"}`,
+                }}>
+                  {srsEnrolled ? "🟢 Enrolled" : "⚫ Unenrolled"}
+                </span>
+                <Button
+                  variant={srsEnrolled ? "danger" : "primary"}
+                  size="sm"
+                  onClick={handleToggleSrs}
+                  disabled={srsSaving}
+                >
+                  {srsSaving ? "Saving…" : srsEnrolled ? "Unenroll" : "Enroll Now"}
+                </Button>
+                {srsSaved && <span className={s.savedTag}>✅ Saved</span>}
               </div>
             </GlassCard>
           </div>

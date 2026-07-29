@@ -93,7 +93,7 @@ async def init_db():
 # ── User helpers ─────────────────────────────────────────────────────────────
 
 async def register_user(user_id: int, discord_username: str = "", email: str = "",
-                        timezone: str = "Asia/Kolkata") -> bool:
+                        timezone: str = "Asia/Kolkata", srs_enrolled: bool = False) -> bool:
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
@@ -109,7 +109,10 @@ async def register_user(user_id: int, discord_username: str = "", email: str = "
                     INSERT INTO users (user_id, discord_username, email, timezone)
                     VALUES (%s, %s, %s, %s)
                 """, (user_id, discord_username, email, timezone))
-                cur.execute("INSERT INTO user_settings (user_id) VALUES (%s)", (user_id,))
+                cur.execute(
+                    "INSERT INTO user_settings (user_id, srs_enrolled) VALUES (%s, %s)",
+                    (user_id, srs_enrolled)
+                )
                 cur.execute("""
                     INSERT INTO streaks (user_id, current_streak, longest_streak, last_post_date)
                     VALUES (%s, 0, 0, NULL) ON CONFLICT DO NOTHING
@@ -272,6 +275,46 @@ async def get_user_settings(user_id: int) -> Optional[dict]:
     return await _run_sync(_sync)
 
 
+async def is_srs_enrolled(user_id: int) -> bool:
+    """Return True if the user is enrolled in the SRS Revision Bank.
+
+    COALESCE to TRUE so a missing settings row (should never happen after
+    auto-heal) behaves as enrolled (fail-open, matches column default).
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(srs_enrolled, TRUE) "
+                    "FROM user_settings WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                return bool(row[0]) if row else True
+    return await _run_sync(_sync)
+
+
+async def set_srs_enrolled(user_id: int, enrolled: bool) -> None:
+    """Enroll or unenroll a user from the SRS Revision Bank.
+
+    Upserts the user_settings row first (mirrors ensure_user pattern) so
+    it is safe even if the settings row doesn't exist yet.
+    Never touches revision_bank rows — data is always preserved.
+    """
+    def _sync():
+        with db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO user_settings (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (user_id,),
+                )
+                cur.execute(
+                    "UPDATE user_settings SET srs_enrolled = %s WHERE user_id = %s",
+                    (enrolled, user_id),
+                )
+    return await _run_sync(_sync)
+
+
 async def update_user_settings(user_id: int, **kwargs):
     if not kwargs:
         return
@@ -288,8 +331,20 @@ async def reset_user_settings(user_id: int):
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:
+                # Preserve srs_enrolled across the reset — it's a user preference,
+                # not a reminder-schedule setting, and unenrolling must never be
+                # silently undone by a settings reset (column default is TRUE).
+                cur.execute(
+                    "SELECT COALESCE(srs_enrolled, TRUE) FROM user_settings WHERE user_id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                srs_enrolled = bool(row[0]) if row else True
                 cur.execute("DELETE FROM user_settings WHERE user_id = %s", (user_id,))
-                cur.execute("INSERT INTO user_settings (user_id) VALUES (%s)", (user_id,))
+                cur.execute(
+                    "INSERT INTO user_settings (user_id, srs_enrolled) VALUES (%s, %s)",
+                    (user_id, srs_enrolled),
+                )
     return await _run_sync(_sync)
 
 
@@ -890,6 +945,7 @@ async def get_admin_user_metrics(today: str) -> List[dict]:
                         u.user_id,
                         u.discord_username,
                         u.is_active,
+                        COALESCE(us.srs_enrolled, TRUE) AS srs_enrolled,
                         COALESCE(s.current_streak, 0)  AS current_streak,
                         COALESCE(s.longest_streak, 0)  AS longest_streak,
 
@@ -934,6 +990,7 @@ async def get_admin_user_metrics(today: str) -> List[dict]:
 
                     FROM users u
                     LEFT JOIN streaks s ON u.user_id = s.user_id
+                    LEFT JOIN user_settings us ON u.user_id = us.user_id
                     WHERE u.is_active = 1
                     ORDER BY COALESCE(s.current_streak, 0) DESC
                 """, (today,))
@@ -1133,7 +1190,9 @@ async def get_all_due_revision_items() -> List[dict]:
                     FROM revision_bank rb
                     JOIN leetcode_problems lp ON lp.question_id = rb.problem_id
                     JOIN users u ON u.user_id = rb.user_id
+                    LEFT JOIN user_settings us ON us.user_id = rb.user_id
                     WHERE u.is_active = 1
+                      AND COALESCE(us.srs_enrolled, TRUE) = TRUE
                       AND rb.next_review_at::date <= CURRENT_DATE
                     ORDER BY rb.user_id ASC, rb.next_review_at ASC
                 """)

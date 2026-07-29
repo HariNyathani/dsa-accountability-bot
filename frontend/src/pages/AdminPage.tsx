@@ -14,6 +14,7 @@ type AdminUser = {
   user_id: string;
   discord_username: string | null;
   is_active: boolean;
+  srs_enrolled: boolean;
   current_streak: number;
   longest_streak: number;
   total_questions: number;
@@ -51,6 +52,10 @@ export default function AdminPage() {
   const [restUserId, setRestUserId] = useState("");
   const [restLoading, setRestLoading] = useState(false);
   const [restResult, setRestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [srsUserId, setSrsUserId] = useState("");
+  const [srsLoading, setSrsLoading] = useState(false);
+  const [srsResult, setSrsResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryResult, setSummaryResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -112,6 +117,30 @@ export default function AdminPage() {
     } finally {
       setUndoLoading(false);
     }
+  };
+
+  const handleSrsEnroll = async () => {
+    if (!srsUserId) return;
+    setSrsLoading(true); setSrsResult(null);
+    try {
+      const res = await api.adminSrsEnroll(srsUserId);
+      setSrsResult({ ok: true, msg: res.data.message });
+      fetchUsers();
+    } catch (e: any) {
+      setSrsResult({ ok: false, msg: e.message || "Enroll failed" });
+    } finally { setSrsLoading(false); }
+  };
+
+  const handleSrsUnenroll = async () => {
+    if (!srsUserId) return;
+    setSrsLoading(true); setSrsResult(null);
+    try {
+      const res = await api.adminSrsUnenroll(srsUserId);
+      setSrsResult({ ok: true, msg: res.data.message });
+      fetchUsers();
+    } catch (e: any) {
+      setSrsResult({ ok: false, msg: e.message || "Unenroll failed" });
+    } finally { setSrsLoading(false); }
   };
 
   const handleRestDay = async () => {
@@ -192,6 +221,7 @@ export default function AdminPage() {
                     <th>💬 Questions</th>
                     <th>📈 Consistency</th>
                     <th>Today</th>
+                    <th>🧠 SRS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -222,6 +252,15 @@ export default function AdminPage() {
                       </td>
                       <td>
                         <span className={`${s.dot} ${u.posted_today ? s.dotOn : ""}`} />
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          color: u.srs_enrolled ? "var(--diff-easy)" : "var(--text-secondary)",
+                        }}>
+                          {u.srs_enrolled ? "🟢" : "⚫"}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -360,6 +399,41 @@ export default function AdminPage() {
                 {undoLoading ? "Reverting…" : "⏪ Undo Last Entry"}
               </Button>
               {undoResult && <AdminResult ok={undoResult.ok} msg={undoResult.msg} />}
+            </div>
+          </GlassCard>
+
+          <GlassCard padded glow>
+            <div className={sh.title}>🧠 SRS Enrollment — Revision Bank Access</div>
+            <p className={s.helpText}>
+              Enroll or unenroll a user from the Spaced Repetition System.
+              Unenrolling pauses daily review DMs and Revision Bank dashboard access
+              without deleting any revision data.
+            </p>
+            <div className={s.formRow}>
+              <div style={{ flex: 1, maxWidth: 280 }}>
+                <Select
+                  label="Target user"
+                  value={srsUserId}
+                  onChange={(e) => { setSrsUserId(e.target.value); setSrsResult(null); }}
+                >
+                  <option value="">Select a user…</option>
+                  {srsUserId && !users.some((u) => u.user_id === srsUserId) && (
+                    <option value={srsUserId} hidden>{srsUserId}</option>
+                  )}
+                  {users.map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.discord_username || u.user_id} ({u.srs_enrolled ? "Enrolled" : "Unenrolled"})
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Button variant="primary" onClick={handleSrsEnroll} disabled={srsLoading || !srsUserId}>
+                {srsLoading ? "Working…" : "✅ Enroll"}
+              </Button>
+              <Button variant="danger" onClick={handleSrsUnenroll} disabled={srsLoading || !srsUserId}>
+                {srsLoading ? "Working…" : "🔕 Unenroll"}
+              </Button>
+              {srsResult && <AdminResult ok={srsResult.ok} msg={srsResult.msg} />}
             </div>
           </GlassCard>
         </div>

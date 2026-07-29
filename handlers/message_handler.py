@@ -173,6 +173,12 @@ async def handle_message(message: discord.Message, bot: discord.Client):
         if m.get("question_id") and str(m["question_id"]).isdigit()
     ]
 
+    # Only show the SRS confidence prompt to enrolled users. Check once (not
+    # per-match) so unenrolled users incur a single DB call and no prompts.
+    if srs_candidates and not await database.is_srs_enrolled(message.author.id):
+        logger.info(f"[SRS] user={message.author.id} not enrolled — skipping confidence prompt")
+        srs_candidates = []
+
     for match in srs_candidates:
         problem_id = int(match["question_id"])
         title      = match.get("matched_title") or match.get("original", "this problem")

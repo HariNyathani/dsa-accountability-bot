@@ -75,6 +75,7 @@ export interface UserSettings {
   final_minute: number;
   email_hour: number;
   email_minute: number;
+  srs_enrolled?: boolean;
 }
 
 export interface UserDetail extends UserBase {

@@ -705,17 +705,21 @@ async def process_progress_submission(
 
         if problem_id:
             try:
-                await database.upsert_revision_bank(
-                    user_id=user_id,
-                    problem_id=problem_id,
-                    confidence=confidence,
-                    next_review_at=next_review_at,
-                )
-                logger.info(
-                    f"[SRS] Upserted revision_bank: user={user_id}, "
-                    f"problem_id={problem_id}, confidence={confidence}, "
-                    f"next_review_at={next_review_at}"
-                )
+                # Guard: skip SRS upsert entirely if the user has unenrolled.
+                if not await database.is_srs_enrolled(user_id):
+                    logger.info(f"[SRS] user={user_id} not enrolled — skipping revision_bank upsert")
+                else:
+                    await database.upsert_revision_bank(
+                        user_id=user_id,
+                        problem_id=problem_id,
+                        confidence=confidence,
+                        next_review_at=next_review_at,
+                    )
+                    logger.info(
+                        f"[SRS] Upserted revision_bank: user={user_id}, "
+                        f"problem_id={problem_id}, confidence={confidence}, "
+                        f"next_review_at={next_review_at}"
+                    )
             except Exception as srs_err:
                 # Non-fatal: SRS failure must not break the main log flow
                 logger.warning(f"[SRS] upsert_revision_bank failed: {srs_err}")

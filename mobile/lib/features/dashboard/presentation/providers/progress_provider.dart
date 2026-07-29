@@ -106,6 +106,12 @@ class ProgressProvider extends ChangeNotifier {
   bool _isLoadingRevisionAll = false;
   bool _isLoadingRevisionOverdue = false;
 
+  /// True when the backend returned 403 SRS_NOT_ENROLLED — the user has
+  /// opted out of the Revision Bank. The tab shows an enroll CTA instead of
+  /// an error. Reset at the start of every revision fetch.
+  bool _srsNotEnrolled = false;
+  bool get srsNotEnrolled => _srsNotEnrolled;
+
   /// Returns the active page cache for [_currentFilterMode].
   Map<int, List<RevisionBankItem>> get _activePageCache =>
       _currentFilterMode == 'overdue'
@@ -204,6 +210,33 @@ class ProgressProvider extends ChangeNotifier {
   /// is read/written. Topic stats are refreshed on every call so they stay
   /// current after a review submission changes the underlying confidence
   /// scores.
+  /// Reconciles revision state after the user toggles SRS enrollment from a
+  /// *different* surface (e.g. the Profile tab switch). Because the Revision
+  /// tab lives in an [IndexedStack] and is kept alive, its `initState` won't
+  /// re-run — so without this the tab can stay stuck showing the "locked"
+  /// empty state after a re-enroll (or keep showing stale items after an
+  /// unenroll). Call this whenever enrollment changes outside this provider.
+  Future<void> onSrsEnrollmentChanged(bool enrolled) async {
+    // Drop any cached pages so the tab reflects the new state on next build.
+    _revisionPageCacheAll.clear();
+    _revisionPageCacheOverdue.clear();
+
+    if (!enrolled) {
+      // Unenrolled: lock the tab immediately and zero the visible counts.
+      _srsNotEnrolled = true;
+      _totalRevisionCountAll = 0;
+      _totalRevisionCountOverdue = 0;
+      if (!_disposed) notifyListeners();
+      return;
+    }
+
+    // Re-enrolled: clear the lock and reload the queue from scratch.
+    _srsNotEnrolled = false;
+    if (!_disposed) notifyListeners();
+    await fetchAllRevisionItems(filterMode: 'all');
+    await fetchAllRevisionItems(filterMode: 'overdue');
+  }
+
   Future<void> fetchAllRevisionItems({
     int page = 1,
     int limit = 10,
@@ -211,6 +244,7 @@ class ProgressProvider extends ChangeNotifier {
   }) async {
     _currentFilterMode = filterMode;
     _currentRevisionPage = page;
+    _srsNotEnrolled = false;
 
     final cache = filterMode == 'overdue'
         ? _revisionPageCacheOverdue
@@ -251,7 +285,14 @@ class ProgressProvider extends ChangeNotifier {
         _revisionTopicStats = pageData.topicStats;
       }
     } on DioException catch (e) {
-      _error = _humanError(e);
+      // Unenrolled users get 403 { detail: { code: SRS_NOT_ENROLLED } } —
+      // surface a dedicated flag so the tab shows the enroll CTA, not an error.
+      if (e.response?.statusCode == 403 &&
+          e.response?.data?['detail']?['code'] == 'SRS_NOT_ENROLLED') {
+        _srsNotEnrolled = true;
+      } else {
+        _error = _humanError(e);
+      }
     } catch (e) {
       _error = 'Could not load revision bank. Pull to retry.';
     } finally {

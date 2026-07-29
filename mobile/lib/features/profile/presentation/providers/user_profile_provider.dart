@@ -37,6 +37,9 @@ class UserProfileProvider extends ChangeNotifier {
   String _timezone = 'Asia/Kolkata';
   String get timezone => _timezone;
 
+  bool _srsEnrolled = true;
+  bool get srsEnrolled => _srsEnrolled;
+
   int? _leaderboardRank;
   int? get leaderboardRank => _leaderboardRank;
 
@@ -65,6 +68,8 @@ class UserProfileProvider extends ChangeNotifier {
         _username = detail['username']?.toString();
         _email = detail['email']?.toString();
         _timezone = detail['timezone']?.toString() ?? 'Asia/Kolkata';
+        _srsEnrolled =
+            (detail['settings']?['srs_enrolled'] as bool?) ?? true;
       }
 
       // Rank.
@@ -131,6 +136,22 @@ class UserProfileProvider extends ChangeNotifier {
       _error = _humanError(e);
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Enrolls or unenrolls the user from the SRS Revision Bank.
+  /// Never deletes revision data — access is paused/resumed.
+  Future<void> setSrsEnrolled(bool enrolled) async {
+    try {
+      await apiClient.dio.patch(
+        '/users/$userId/settings/srs',
+        data: <String, dynamic>{'enrolled': enrolled},
+      );
+      _srsEnrolled = enrolled;
+      notifyListeners();
+    } on DioException catch (e) {
+      debugPrint('[UserProfileProvider] setSrsEnrolled failed: $e');
+      rethrow;
     }
   }
 

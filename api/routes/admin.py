@@ -35,6 +35,7 @@ class AdminUserRow(BaseModel):
     user_id: str
     discord_username: Optional[str] = None
     is_active: bool = True
+    srs_enrolled: bool = True
     current_streak: int = 0
     longest_streak: int = 0
     total_questions: int = 0
@@ -99,6 +100,7 @@ async def admin_list_users(admin: SessionUser = Depends(require_admin)):
             user_id=str(m["user_id"]),
             discord_username=m.get("discord_username"),
             is_active=bool(m.get("is_active", 1)),
+            srs_enrolled=bool(m.get("srs_enrolled", True)),
             current_streak=m.get("current_streak", 0),
             longest_streak=m.get("longest_streak", 0),
             total_questions=m.get("total_questions", 0),
@@ -324,5 +326,51 @@ async def admin_force_summary(
         data=AdminActionResponse(
             status="success",
             message=f"Weekly summaries {mode}.",
+        )
+    )
+
+
+# ── SRS Enrollment (admin) ──────────────────────────────────────────────────
+
+@router.post(
+    "/users/{user_id}/srs-enroll",
+    response_model=APIResponse[AdminActionResponse],
+    summary="Enroll a user in the SRS Revision Bank",
+    description="Enrolls the user in the Spaced Repetition System (daily review DMs + dashboard).",
+)
+async def admin_srs_enroll(user_id: str, admin: SessionUser = Depends(require_admin)):
+    uid_int = int(user_id)
+    user = await database.get_user(uid_int)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    await database.set_srs_enrolled(uid_int, True)
+    _audit_log(admin, f"POST /admin/users/{user_id}/srs-enroll")
+    return APIResponse(
+        data=AdminActionResponse(
+            status="success",
+            message=f"User {user_id} enrolled in SRS.",
+            user_id=user_id,
+        )
+    )
+
+
+@router.post(
+    "/users/{user_id}/srs-unenroll",
+    response_model=APIResponse[AdminActionResponse],
+    summary="Unenroll a user from the SRS Revision Bank",
+    description="Pauses daily review DMs and Revision Bank access. Revision data is preserved.",
+)
+async def admin_srs_unenroll(user_id: str, admin: SessionUser = Depends(require_admin)):
+    uid_int = int(user_id)
+    user = await database.get_user(uid_int)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    await database.set_srs_enrolled(uid_int, False)
+    _audit_log(admin, f"POST /admin/users/{user_id}/srs-unenroll")
+    return APIResponse(
+        data=AdminActionResponse(
+            status="success",
+            message=f"User {user_id} unenrolled from SRS. Data preserved.",
+            user_id=user_id,
         )
     )
