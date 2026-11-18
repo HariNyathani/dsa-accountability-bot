@@ -55,9 +55,9 @@ export default function AnalyticsPage() {
               </div>
             )}
             <div className={s.statsGrid} data-cols="4">
-              <StatCard icon="📚" value={topics.data?.unique_topics ?? 0} label="Unique Topics" accent="espresso" />
-              <StatCard icon="💬" value={topics.data?.total_mentions ?? 0} label="Questions Logged" accent="slate" />
-              <StatCard icon="📅" value={activity.data?.active_days ?? 0} label="Active Days" accent="sage" />
+              <StatCard icon="📚" value={topics.data?.unique_topics ?? (topics.error ? "—" : 0)} label="Unique Topics" accent="espresso" />
+              <StatCard icon="💬" value={topics.data?.total_mentions ?? (topics.error ? "—" : 0)} label="Questions Logged" accent="slate" />
+              <StatCard icon="📅" value={activity.data?.active_days ?? (activity.error ? "—" : 0)} label="Active Days" accent="sage" />
               <StatCard icon="📊" value={`${o.avg_consistency_pct}%`} label="Avg Consistency" accent="amber" />
             </div>
           </>
@@ -78,10 +78,17 @@ export default function AnalyticsPage() {
               aria-label="Period"
             />
           </div>
-          {activity.loading ? (
+          {activity.loading && !activity.data ? (
             <SkeletonCard />
-          ) : (
-            activity.data && (
+          ) : activity.error && !activity.data ? (
+            <ErrorState message={activity.error} onRetry={activity.refetch} />
+          ) : activity.data ? (
+            <>
+              {activity.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Showing cached data — refresh failed: {activity.error}
+                </div>
+              )}
               <ResponsiveContainer width="100%" height={320}>
                 <AreaChart data={activity.data.daily_activity}>
                   <defs>
@@ -102,7 +109,9 @@ export default function AnalyticsPage() {
                   <Area type="monotone" dataKey="users_posted" stroke="var(--diff-easy)" fill="url(#gUsr2)" strokeWidth={2} name="Users Active" />
                 </AreaChart>
               </ResponsiveContainer>
-            )
+            </>
+          ) : (
+            <EmptyState icon="📈" title="No activity data yet" message="Activity will appear after progress is logged." />
           )}
         </GlassCard>
       </div>
@@ -111,24 +120,40 @@ export default function AnalyticsPage() {
         <GlassCard padded glow>
           <div className={s.title}>📚 DSA Topic Practice Totals</div>
           <div className={s.subtitle}>Weighted top practiced topics across all users</div>
-          {topics.loading ? (
+          {topics.loading && !topics.data ? (
             <SkeletonCard />
+          ) : topics.error && !topics.data ? (
+            <ErrorState message={topics.error} onRetry={topics.refetch} />
           ) : topics.data && topics.data.top_topics.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(300, topics.data.top_topics.length * 38)}>
-              <BarChart data={topics.data.top_topics} layout="vertical" margin={{ left: 20 }}>
-                <CartesianGrid {...gridProps} />
-                <XAxis type="number" tick={axisTick} />
-                <YAxis type="category" dataKey="topic" width={140} tick={axisTickBold} />
-                <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
-                <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Questions">
-                  {topics.data.top_topics.map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <>
+              {topics.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Showing cached data — refresh failed: {topics.error}
+                </div>
+              )}
+              <ResponsiveContainer width="100%" height={Math.max(300, topics.data.top_topics.length * 38)}>
+                <BarChart data={topics.data.top_topics} layout="vertical" margin={{ left: 20 }}>
+                  <CartesianGrid {...gridProps} />
+                  <XAxis type="number" tick={axisTick} />
+                  <YAxis type="category" dataKey="topic" width={140} tick={axisTickBold} />
+                  <RTooltip contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} />
+                  <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Questions">
+                    {topics.data.top_topics.map((_, i) => (
+                      <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </>
           ) : (
+            <>
+              {topics.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Refresh failed: {topics.error}
+                </div>
+              )}
             <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
+            </>
           )}
         </GlassCard>
       </div>

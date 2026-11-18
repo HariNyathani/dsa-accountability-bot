@@ -57,8 +57,17 @@ DISCORD_OAUTH_MOBILE_REDIRECT_URI: str = os.getenv(
 )
 
 # ── Session / JWT ────────────────────────────────────────────────────────
-SESSION_SECRET: str = os.getenv("SESSION_SECRET", "change-me-to-a-random-secret-key")
+APP_ENV: str = os.getenv("APP_ENV", "development").strip().lower()
+SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
 COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
+if APP_ENV == "production":
+    if len(SESSION_SECRET) < 32 or SESSION_SECRET == "change-me-to-a-random-secret-key":
+        raise RuntimeError("SESSION_SECRET must be a unique secret of at least 32 characters in production")
+    if not COOKIE_SECURE:
+        raise RuntimeError("COOKIE_SECURE=true is required in production")
+elif not SESSION_SECRET:
+    SESSION_SECRET = "change-me-to-a-random-secret-key"
 
 # ── Frontend ─────────────────────────────────────────────────────────────
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")

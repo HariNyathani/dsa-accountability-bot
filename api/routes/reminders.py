@@ -8,8 +8,9 @@ DELETE /reminders/{user_id}  — reset to defaults
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
+from api.middleware.auth import SessionUser, get_current_user
 from api.middleware.error_handler import BadRequestError, NotFoundError
 from api.schemas.common import APIResponse
 from api.schemas.reminders import (
@@ -46,12 +47,24 @@ async def _ensure(uid: str):
     return u, uid_int
 
 
+def _verify_reminder_owner(user_id: str, current_user: SessionUser | None) -> None:
+    """Require an authenticated caller to access only their own schedule."""
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if str(current_user.id) != str(user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.get(
     "/{user_id}",
     response_model=APIResponse[ReminderSchedule],
     summary="Get reminder schedule",
 )
-async def get_reminders(user_id: str):
+async def get_reminders(
+    user_id: str,
+    current_user: SessionUser | None = Depends(get_current_user),
+):
+    _verify_reminder_owner(user_id, current_user)
     user, uid_int = await _ensure(user_id)
     s = await database.get_user_settings(uid_int)
     if not s:
@@ -73,7 +86,11 @@ async def get_reminders(user_id: str):
     response_model=APIResponse[ReminderSchedule],
     summary="Update reminder schedule",
 )
-async def update_reminders(body: ReminderUpdateRequest):
+async def update_reminders(
+    body: ReminderUpdateRequest,
+    current_user: SessionUser | None = Depends(get_current_user),
+):
+    _verify_reminder_owner(body.user_id, current_user)
     user, uid_int = await _ensure(body.user_id)
     updates: dict = {}
 
@@ -114,7 +131,11 @@ async def update_reminders(body: ReminderUpdateRequest):
     response_model=APIResponse[ReminderDeleteResponse],
     summary="Reset reminders to defaults",
 )
-async def delete_reminders(user_id: str):
+async def delete_reminders(
+    user_id: str,
+    current_user: SessionUser | None = Depends(get_current_user),
+):
+    _verify_reminder_owner(user_id, current_user)
     _, uid_int = await _ensure(user_id)
     await database.reset_user_settings(uid_int)
     return APIResponse(data=ReminderDeleteResponse(user_id=user_id))

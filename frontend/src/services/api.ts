@@ -196,15 +196,15 @@ export const api = {
       { method: "POST", ...init }
     ),
   adminMissedToday: (init?: RequestInit) => request<APIResponse<{ users: any[]; total: number }>>("/admin/missed-today", init),
-  adminSudoLog: (data: { user_id: string; topic: string; count: number; difficulty: string }, init?: RequestInit) =>
+  adminSudoLog: (data: { user_id: string; topic: string; count: number; difficulty: string; target_date?: string }, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/sudo-log", {
       method: "POST", body: JSON.stringify(data),
       ...init,
     }),
-  adminSudoRestDay: (userId: string, init?: RequestInit) =>
+  adminSudoRestDay: (userId: string, targetDate?: string, init?: RequestInit) =>
     request<APIResponse<{ status: string; message: string; user_id?: string }>>("/admin/sudo-rest", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ user_id: userId, ...(targetDate ? { target_date: targetDate } : {}) }),
       ...init,
     }),
   adminUndo: (userId: string, init?: RequestInit) =>

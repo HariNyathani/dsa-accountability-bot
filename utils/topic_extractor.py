@@ -1,7 +1,8 @@
 """
-Keyword-based topic extractor.
+Keyword-based DSA topic extractor.
 
-Scans a message for known DSA topics and returns a comma-separated list.
+``extract_topics`` returns canonical ``(topic, question_count)`` pairs;
+``topics_to_str`` formats topic labels for storage or display.
 """
 
 import re

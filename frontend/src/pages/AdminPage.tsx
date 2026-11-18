@@ -44,6 +44,8 @@ export default function AdminPage() {
   const [sudoDiff, setSudoDiff] = useState("Medium");
   const [sudoLoading, setSudoLoading] = useState(false);
   const [sudoResult, setSudoResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [sudoTargetDate, setSudoTargetDate] = useState("");   // "" = today (default)
+  const [restTargetDate, setRestTargetDate] = useState("");   // "" = today (default)
 
   const [undoUserId, setUndoUserId] = useState("");
   const [undoLoading, setUndoLoading] = useState(false);
@@ -94,6 +96,7 @@ export default function AdminPage() {
         topic: sudoTopic,
         count: sudoCount,
         difficulty: sudoDiff,
+        ...(sudoTargetDate ? { target_date: sudoTargetDate } : {}),
       });
       setSudoResult({ ok: true, msg: res.data.message });
       fetchUsers();
@@ -148,7 +151,7 @@ export default function AdminPage() {
     setRestLoading(true);
     setRestResult(null);
     try {
-      await api.adminSudoRestDay(restUserId);
+      await api.adminSudoRestDay(restUserId, restTargetDate || undefined);
       setRestResult({
         ok: true,
         msg: `Rest day logged for ${users.find((u) => u.user_id === restUserId)?.discord_username || restUserId}`,
@@ -318,6 +321,14 @@ export default function AdminPage() {
                 <option value="Hard">Hard</option>
                 <option value="Expert">Expert</option>
               </Select>
+              <TextInput
+                type="date"
+                label="Target Date"
+                hint="Leave blank for today"
+                value={sudoTargetDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setSudoTargetDate(e.target.value)}
+              />
             </div>
             <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <Button variant="primary" onClick={handleSudoLog} disabled={sudoLoading || !sudoUserId || !sudoTopic}>
@@ -355,6 +366,16 @@ export default function AdminPage() {
                     </option>
                   ))}
                 </Select>
+              </div>
+              <div style={{ flex: 1, maxWidth: 200 }}>
+                <TextInput
+                  type="date"
+                  label="Target Date"
+                  hint="Leave blank for today"
+                  value={restTargetDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setRestTargetDate(e.target.value)}
+                />
               </div>
               <Button
                 id="btn-emergency-rest-day"

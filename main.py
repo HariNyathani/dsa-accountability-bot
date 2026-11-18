@@ -17,6 +17,7 @@ import sys
 import threading
 
 import config
+from api.runtime_status import configure_bot
 
 WORKERS = int(os.getenv("API_WORKERS", "1"))
 
@@ -89,17 +90,20 @@ def main() -> None:
 
     if args.api:
         # API-only mode
+        configure_bot(False)
         workers = args.workers if args.workers is not None else WORKERS
         logger.info("Launching in API-only mode.")
         start_api_server(args.host, args.port, workers=workers)
 
     elif args.bot:
         # Bot-only mode (original behaviour)
+        configure_bot(True)
         logger.info("Launching in bot-only mode.")
         start_bot()
 
     else:
         # Default: both
+        configure_bot(True)
         logger.info("Launching bot + API concurrently.")
         start_api_thread(args.host, args.port)
         start_bot()  # blocks here

@@ -10,7 +10,11 @@ from api.schemas.progress import (
     RevisionBankItem, RevisionBankPage, TopicConfidenceStat,
 )
 from api.middleware.auth import get_current_user
-from services.progress_service import process_progress_submission, CONFIDENCE_INTERVAL_DAYS
+from services.progress_service import (
+    process_progress_submission,
+    process_plan_submission,
+    CONFIDENCE_INTERVAL_DAYS,
+)
 from utils.resolvers import resolve_problem, RESOLVERS
 
 logger = logging.getLogger("dsa_bot.api.progress")
@@ -41,6 +45,7 @@ async def _require_srs_enrolled(user_id: int) -> None:
         )
 
 @router.post("", response_model=LogProgressResponse)
+@router.post("/", response_model=LogProgressResponse, include_in_schema=False)
 async def log_progress(
     request: LogProgressRequest,
     user_id: int = Depends(require_auth)
@@ -50,36 +55,49 @@ async def log_progress(
     Records data into the same history stream as Discord commands.
     """
     try:
-        # Reconstruct a quasi-Discord message format so our backend
-        # logic handles it naturally without code branching.
-        content_lines = []
-        if request.intent_type == "done":
-            cmd = "!qdone " + " ".join([f"{t.canonical_topic} {t.question_count}" for t in request.topics])
-            content_lines.append(cmd)
-        elif request.intent_type == "plan":
-            cmd = "!plan tomorrow " + ", ".join([t.canonical_topic for t in request.topics])
-            content_lines.append(cmd)
+        if request.intent_type == "plan":
+            plan_topics = [
+                {
+                    "canonical_topic": topic.canonical_topic,
+                    "question_count": topic.question_count,
+                    "difficulty": topic.difficulty,
+                }
+                for topic in request.topics
+            ]
+            result = await process_plan_submission(
+                user_id=user_id,
+                topics=plan_topics,
+                target_date=request.target_date,
+                note=request.note,
+                source="web",
+            )
+        elif request.intent_type == "done":
+            # Reconstruct the command shape consumed by the shared progress service.
+            cmd = "!qdone " + " ".join(
+                f"{topic.canonical_topic} {topic.question_count}"
+                for topic in request.topics
+            )
+            if request.note:
+                cmd += f"\n{request.note}"
+            web_topics = [
+                {
+                    "canonical_topic": topic.canonical_topic,
+                    "question_count": topic.question_count,
+                    "difficulty": topic.difficulty,
+                }
+                for topic in request.topics
+            ]
+            result = await process_progress_submission(
+                user_id=user_id,
+                content=cmd,
+                source="web",
+                override_date=request.target_date,
+                web_topics=web_topics,
+                confidence=request.confidence,
+                is_review=bool(request.is_review),
+            )
         else:
             raise HTTPException(status_code=400, detail="Invalid intent_type")
-            
-        if request.note:
-            content_lines.append(request.note)
-            
-        final_content = "\n".join(content_lines)
-        
-        web_topics = []
-        if request.intent_type == "done":
-            web_topics = [{"canonical_topic": t.canonical_topic, "question_count": t.question_count, "difficulty": t.difficulty} for t in request.topics]
-
-        result = await process_progress_submission(
-            user_id=user_id,
-            content=final_content,
-            source="web",
-            override_date=request.target_date,
-            web_topics=web_topics if web_topics else None,
-            confidence=request.confidence,
-            is_review=request.is_review,
-        )
         
         if result.get("status") == "skipped":
             return LogProgressResponse(

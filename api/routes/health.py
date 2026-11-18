@@ -10,6 +10,7 @@ import time
 
 from fastapi import APIRouter
 
+from api.runtime_status import snapshot as runtime_status_snapshot
 from api.schemas.common import APIResponse, HealthCheck, ServiceStatus, SystemStatus
 from db import database
 
@@ -87,15 +88,14 @@ async def system_status():
     except Exception:
         pass
 
-    # Bot status (set externally via app.state if available)
-    bot_status = "connected"  # optimistic — overridden by launcher if needed
+    bot_status, scheduler_status = runtime_status_snapshot()
 
     return APIResponse(
         data=SystemStatus(
             api="running",
             bot=bot_status,
             database=db_status,
-            scheduler="active",
+            scheduler=scheduler_status,
             services=services,
             registered_users=user_count,
             uptime_seconds=_uptime(),

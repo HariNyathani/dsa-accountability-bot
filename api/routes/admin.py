@@ -51,6 +51,7 @@ class SudoLogRequest(BaseModel):
     topic: str = Field(..., min_length=1, description="DSA topic (e.g. 'arrays', 'dp')")
     count: int = Field(1, ge=1, le=50, description="Number of questions")
     difficulty: str = Field("Medium", description="Easy, Medium, Hard, or Expert")
+    target_date: Optional[str] = Field(None, description="YYYY-MM-DD for retroactive logging; defaults to today")
 
 class UndoRequest(BaseModel):
     user_id: str
@@ -80,6 +81,25 @@ def _audit_log(admin: SessionUser, action: str, detail: str = ""):
         "🔐 ADMIN ACTION | user=%s (ID: %s) | action=%s | detail=%s",
         admin.username, admin.id, action, detail,
     )
+
+
+def _validate_target_date(
+    raw: Optional[str], timezone_str: str = ""
+) -> Optional[str]:
+    """Validate and normalize an optional YYYY-MM-DD target date.
+    Returns the validated date string or None (meaning today).
+    Raises HTTPException on invalid format or future dates."""
+    if not raw:
+        return None
+    from utils.time_utils import parse_date, today_str
+    try:
+        parsed = parse_date(raw)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid date format: '{raw}'. Expected YYYY-MM-DD.")
+    today = parse_date(today_str(timezone_str))
+    if parsed > today:
+        raise HTTPException(status_code=400, detail=f"Cannot log for a future date ({raw}).")
+    return raw
 
 
 # ── GET /admin/users ─────────────────────────────────────────────────────────
@@ -159,6 +179,9 @@ async def admin_sudo_log(
     user = await database.get_user(uid)
     if not user:
         raise HTTPException(status_code=404, detail=f"User {payload.user_id} not found")
+    validated_date = _validate_target_date(
+        payload.target_date, user.get("timezone", "")
+    )
 
     # Build qdone-style command content
     content = f"!qdone {payload.topic} {payload.count} {payload.difficulty}"
@@ -171,6 +194,7 @@ async def admin_sudo_log(
             source="admin_panel",
             channel_id=0,
             acting_user_id=int(admin.id),
+            override_date=validated_date,
         )
     except Exception as e:
         logger.error("Admin sudo-log error: %s", e, exc_info=True)
@@ -184,7 +208,7 @@ async def admin_sudo_log(
 
     _audit_log(
         admin, "POST /admin/sudo-log",
-        f"User {payload.user_id}: {payload.topic} x{payload.count} [{payload.difficulty}]"
+        f"User {payload.user_id}: {payload.topic} x{payload.count} [{payload.difficulty}], target_date={validated_date}"
     )
 
     return APIResponse(
@@ -200,6 +224,7 @@ async def admin_sudo_log(
 
 class SudoRestRequest(BaseModel):
     user_id: str
+    target_date: Optional[str] = Field(None, description="YYYY-MM-DD for retroactive logging; defaults to today")
 
 @router.post(
     "/sudo-rest",
@@ -221,6 +246,9 @@ async def admin_sudo_rest(
     user = await database.get_user(uid)
     if not user:
         raise HTTPException(status_code=404, detail=f"User {payload.user_id} not found")
+    validated_date = _validate_target_date(
+        payload.target_date, user.get("timezone", "")
+    )
 
     # Invoke the REAL rest-day path — identical to `!sudo_log @user rest`
     # on Discord.  content="!rest" triggers _classify_message → "rest",
@@ -235,6 +263,7 @@ async def admin_sudo_rest(
             source="admin_panel",
             channel_id=0,
             acting_user_id=int(admin.id),
+            override_date=validated_date,
         )
     except Exception as e:
         logger.error("Admin sudo-rest error: %s", e, exc_info=True)
@@ -251,7 +280,7 @@ async def admin_sudo_rest(
 
     _audit_log(
         admin, "POST /admin/sudo-rest",
-        f"Emergency rest day for user {payload.user_id}",
+        f"Emergency rest day for user {payload.user_id}, target_date={validated_date}",
     )
 
     return APIResponse(

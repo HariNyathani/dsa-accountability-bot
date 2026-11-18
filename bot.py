@@ -18,6 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 import config
+from api.runtime_status import configure_bot, set_bot_ready, set_scheduler_running
 from db import database
 from handlers.message_handler import handle_message
 from handlers.reminder_handler import check_all_reminders
@@ -154,6 +155,7 @@ async def _resolve_target_user(ctx: commands.Context, args: list[str]):
 @bot.event
 async def on_ready():
     """Called when the bot successfully connects to Discord."""
+    set_bot_ready(True)
     logger.info(f"Bot connected as {bot.user} (ID: {bot.user.id})")
 
     # Initialise database
@@ -164,6 +166,7 @@ async def on_ready():
     if not scheduler.running:
         scheduler.start()
         logger.info("Scheduler started.")
+    set_scheduler_running(scheduler.running)
 
     users = await database.get_all_active_users()
     logger.info(f"Tracking {len(users)} registered user(s).")
@@ -188,6 +191,20 @@ async def on_ready():
             logger.info(f"Slash commands synced globally ({len(synced)} command(s)); may take up to 1h to appear.")
     except Exception as exc:
         logger.error(f"Failed to sync slash commands: {exc}", exc_info=True)
+
+
+@bot.event
+async def on_disconnect():
+    """Mark gateway loss until Discord.py reports a successful resume/ready."""
+    set_bot_ready(False)
+    logger.warning("Discord gateway disconnected.")
+
+
+@bot.event
+async def on_resumed():
+    """Mark a resumed Discord gateway session as connected again."""
+    set_bot_ready(True)
+    logger.info("Discord gateway session resumed.")
 
 
 @bot.event
@@ -1012,13 +1029,16 @@ async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
         await ctx.send("❌ Admin only.")
         return
 
+    # ── Parse arguments: @mention [YYYY-MM-DD] <subcommand> ──────────
     parts = args.split(None, 1)
     if len(parts) < 2:
         await ctx.send(
-            "❌ Usage: `!sudo_log @user <rest|qdone ...|text>`\n"
+            "❌ Usage: `!sudo_log @user [YYYY-MM-DD] <rest|qdone ...|text>`\n"
             "Examples:\n"
             "• `!sudo_log @user rest`\n"
+            "• `!sudo_log @user 2026-07-28 rest`\n"
             "• `!sudo_log @user qdone arrays 3 hard`\n"
+            "• `!sudo_log @user 2026-07-28 qdone arrays 3 hard`\n"
             "• `!sudo_log @user solved two sum`"
         )
         return
@@ -1027,6 +1047,25 @@ async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
     target_id = _parse_user_mention(mention_str)
     if not target_id:
         await ctx.send("❌ Could not parse user mention. Use `!sudo_log @user <subcommand>`.")
+        return
+
+    # ── Optional date argument ────────────────────────────────────────
+    override_date = None
+    rest_tokens = rest.strip().split(None, 1)
+    if rest_tokens:
+        import re as _re
+        if _re.fullmatch(r'\d{4}-\d{2}-\d{2}', rest_tokens[0]):
+            from datetime import datetime
+            try:
+                datetime.strptime(rest_tokens[0], "%Y-%m-%d")
+            except ValueError:
+                await ctx.send("❌ Invalid target date. Use YYYY-MM-DD.")
+                return
+            override_date = rest_tokens[0]
+            rest = rest_tokens[1] if len(rest_tokens) > 1 else ""
+
+    if not rest.strip():
+        await ctx.send("❌ Missing subcommand after date. Provide `rest`, `qdone ...`, or free text.")
         return
 
     # Ensure target user is registered
@@ -1054,6 +1093,7 @@ async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
             source="discord",
             channel_id=ctx.channel.id,
             acting_user_id=ctx.author.id,
+            override_date=override_date,
         )
     except Exception as e:
         logger.error(f"sudo_log error: {e}", exc_info=True)
@@ -1069,7 +1109,8 @@ async def cmd_sudo_log(ctx: commands.Context, *, args: str = ""):
         return
 
     feedback = result.get("feedback_message", "Progress logged.")
-    await ctx.send(f"✅ **Admin Override**: Logged for <@{target_id}>: {feedback}")
+    date_note = f" (📅 {override_date})" if override_date else ""
+    await ctx.send(f"✅ **Admin Override**: Logged for <@{target_id}>{date_note}: {feedback}")
 
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -1155,7 +1196,7 @@ async def cmd_help(ctx: commands.Context, command_name: str = ""):
             "`!setemail email @user` · `!setdeadline HH:MM @user`\n"
             "`!setreminders ... @user` · `!mysettings @user`\n"
             "`!admin users` · `!admin missed` · `!admin forcesummary`\n"
-            "`!sudo_log @user <rest|qdone|text>` — Log progress for another user"
+            "`!sudo_log @user [YYYY-MM-DD] <rest|qdone|text>` — Log progress for another user (optional past date)"
         )
         if config.BOT_OWNER_ID and ctx.author.id == config.BOT_OWNER_ID:
             admin_text += "\n\n**Owner Suite:**\n`!qpurge @user` — Delete all user progress\n`!qundo @user` — Delete latest entry"
@@ -1191,8 +1232,13 @@ def main():
         )
         sys.exit(1)
 
+    configure_bot(True)
     logger.info("Starting DSA Accountability Bot (multi-user mode)...")
-    bot.run(token, log_handler=None)
+    try:
+        bot.run(token, log_handler=None)
+    finally:
+        set_bot_ready(False)
+        set_scheduler_running(False)
 
 
 if __name__ == "__main__":

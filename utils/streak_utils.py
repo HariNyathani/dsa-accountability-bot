@@ -15,6 +15,8 @@ async def recalculate_streak(user_id: int) -> dict:
     Recalculate current and longest streak from daily_status rows.
     Returns {"current_streak": int, "longest_streak": int, "last_post_date": str | None}.
     """
+    user = await database.get_user(user_id)
+    user_tz = user.get("timezone", "") if user else ""
     statuses = await database.get_all_daily_statuses(user_id)
 
     posted_dates = sorted(
@@ -22,7 +24,7 @@ async def recalculate_streak(user_id: int) -> dict:
     )
 
     if not posted_dates:
-        await database.update_streak(user_id, 0, 0, "")
+        await database.update_streak(user_id, 0, 0, None)
         return {"current_streak": 0, "longest_streak": 0, "last_post_date": None}
 
     # Walk through posted dates and compute streaks
@@ -38,7 +40,7 @@ async def recalculate_streak(user_id: int) -> dict:
     last_post = posted_dates[-1]
 
     # If last post is not today or yesterday, current streak is 0
-    today = today_str()
+    today = today_str(user_tz)
     today_date = parse_date(today)
     last_post_date = parse_date(last_post)
     diff = (today_date - last_post_date).days

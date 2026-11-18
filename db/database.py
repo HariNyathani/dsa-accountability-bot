@@ -9,6 +9,7 @@ import os
 import logging
 import asyncio
 import json
+import threading
 from typing import Optional, List
 
 import psycopg2
@@ -19,34 +20,37 @@ logger = logging.getLogger("dsa_bot.database")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
 
 class DatabaseManager:
     def __init__(self, dsn):
         self.dsn = dsn
         self.pool = None
+        self._pool_lock = threading.Lock()
 
     def init_pool(self) -> None:
         """Eagerly create the connection pool. Called from app startup."""
-        if self.pool:
-            return
-        if not self.dsn:
-            raise RuntimeError("Database connection pool is not initialized (DATABASE_URL may be missing).")
-        self.pool = SimpleConnectionPool(5, 25, self.dsn)
+        with self._pool_lock:
+            if self.pool is not None:
+                return
+            if not self.dsn:
+                raise RuntimeError("Database connection pool is not initialized (DATABASE_URL may be missing).")
+            self.pool = ThreadedConnectionPool(5, 25, self.dsn)
 
     @contextmanager
     def get_connection(self):
-        if not self.pool:
-            if not self.dsn:
-                raise RuntimeError("Database connection pool is not initialized (DATABASE_URL may be missing).")
-            self.pool = SimpleConnectionPool(5, 25, self.dsn)
-        conn = self.pool.getconn()
+        if self.pool is None:
+            self.init_pool()
+        pool = self.pool
+        if pool is None:
+            raise RuntimeError("Database connection pool failed to initialize.")
+        conn = pool.getconn()
         try:
             with conn:
                 yield conn
         finally:
-            self.pool.putconn(conn)
+            pool.putconn(conn)
 
 db_manager = DatabaseManager(DATABASE_URL)
 
@@ -65,28 +69,8 @@ async def init_db():
             with db_manager.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(sql_content)
-                    
-                    # Sanitize legacy database state
-                    cur.execute("""
-                        DELETE FROM progress_logs 
-                        WHERE topics = 'Uncategorized' 
-                           OR topics ~ '^[0-9.]+$'
-                    """)
-                    if cur.rowcount > 0:
-                        logger.info(f"Sanitized DB: Deleted {cur.rowcount} garbage rows from progress_logs.")
-                        
-                    # NOTE: Sanitizer disabled — limit raised to 200 for testing.
-                    # cur.execute("""
-                    #     DELETE FROM progress_logs
-                    #     WHERE id IN (
-                    #         SELECT id
-                    #         FROM progress_logs, jsonb_array_elements(parsed_fields->'log') elem
-                    #         GROUP BY id
-                    #         HAVING sum((elem->>'question_count')::int) > 25
-                    #     )
-                    # """)
-                    # if cur.rowcount > 0:
-                    #     logger.info(f"Sanitized DB: Deleted {cur.rowcount} clown data rows (>25 q's) from progress_logs.")
+                    # Startup is schema-only: never delete historical user progress.
+                    # Any data repair must use an explicit, reviewed migration.
                 conn.commit()
     return await _run_sync(_sync)
 
@@ -444,6 +428,7 @@ async def get_daily_question_count(user_id: int, log_date: str) -> int:
                     SELECT COALESCE(sum((elem->>'question_count')::int), 0)
                     FROM progress_logs pl, jsonb_array_elements(pl.parsed_fields->'log') elem
                     WHERE pl.user_id = %s AND pl.log_date = %s
+                      AND pl.message_type NOT IN ('plan', 'rest')
                 """, (user_id, log_date))
                 row = cur.fetchone()
                 return int(row[0]) if row and row[0] else 0
@@ -771,7 +756,12 @@ async def get_streak(user_id: int) -> dict:
     return await _run_sync(_sync)
 
 
-async def update_streak(user_id: int, current_streak: int, longest_streak: int, last_post_date: str):
+async def update_streak(
+    user_id: int,
+    current_streak: int,
+    longest_streak: int,
+    last_post_date: Optional[str],
+):
     def _sync():
         with db_manager.get_connection() as conn:
             with conn.cursor() as cur:

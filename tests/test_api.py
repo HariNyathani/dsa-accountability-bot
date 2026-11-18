@@ -2,10 +2,18 @@
 API endpoint tests.
 
 Covers: health, status, users, leaderboard, analytics, summaries, reminders.
-Uses the in-memory DB fixtures from conftest.py.
+Uses a fresh, explicitly verified PostgreSQL test database from conftest.py.
 """
 
 import pytest
+
+from api.middleware.auth import SessionUser, get_current_user
+
+
+def _authenticate_as(app, user_id: str) -> None:
+    app.dependency_overrides[get_current_user] = lambda: SessionUser(
+        id=user_id, username="TestUser"
+    )
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
@@ -25,6 +33,27 @@ async def test_status(client):
     assert r.status_code == 200
     body = r.json()
     assert body["data"]["api"] == "running"
+    assert body["data"]["bot"] == "disabled"
+    assert body["data"]["scheduler"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_status_reflects_bot_and_scheduler_runtime(client):
+    from api import runtime_status
+
+    runtime_status.configure_bot(True)
+    try:
+        starting = (await client.get("/status")).json()["data"]
+        assert starting["bot"] == "connecting"
+        assert starting["scheduler"] == "stopped"
+
+        runtime_status.set_bot_ready(True)
+        runtime_status.set_scheduler_running(True)
+        running = (await client.get("/status")).json()["data"]
+        assert running["bot"] == "connected"
+        assert running["scheduler"] == "running"
+    finally:
+        runtime_status.configure_bot(False)
 
 
 # ── Users ────────────────────────────────────────────────────────────────────
@@ -42,7 +71,7 @@ async def test_list_users_with_data(seeded_client):
     assert r.status_code == 200
     data = r.json()["data"]
     assert len(data) >= 1
-    assert data[0]["user_id"] == 999
+    assert data[0]["user_id"] == "123456789012345678"
 
 
 @pytest.mark.asyncio
@@ -53,24 +82,25 @@ async def test_get_user_404(client):
 
 @pytest.mark.asyncio
 async def test_get_user(seeded_client):
-    r = await seeded_client.get("/users/999")
+    r = await seeded_client.get("/users/123456789012345678")
     assert r.status_code == 200
-    assert r.json()["data"]["user_id"] == 999
-    assert r.json()["data"]["settings"] is not None
+    assert r.json()["data"]["user_id"] == "123456789012345678"
+    # Public unauthenticated profiles do not expose owner-only settings.
+    assert r.json()["data"]["settings"] is None
 
 
 @pytest.mark.asyncio
 async def test_user_stats(seeded_client):
-    r = await seeded_client.get("/users/999/stats")
+    r = await seeded_client.get("/users/123456789012345678/stats")
     assert r.status_code == 200
     d = r.json()["data"]
-    assert d["user_id"] == 999
+    assert d["user_id"] == "123456789012345678"
     assert "consistency_pct" in d
 
 
 @pytest.mark.asyncio
 async def test_user_streak(seeded_client):
-    r = await seeded_client.get("/users/999/streak")
+    r = await seeded_client.get("/users/123456789012345678/streak")
     assert r.status_code == 200
     d = r.json()["data"]
     assert d["current_streak"] == 0
@@ -78,7 +108,7 @@ async def test_user_streak(seeded_client):
 
 @pytest.mark.asyncio
 async def test_user_topics(seeded_client):
-    r = await seeded_client.get("/users/999/topics")
+    r = await seeded_client.get("/users/123456789012345678/topics")
     assert r.status_code == 200
     d = r.json()["data"]
     assert d["total_mentions"] == 0
@@ -132,16 +162,18 @@ async def test_analytics_activity(seeded_client):
 
 @pytest.mark.asyncio
 async def test_summaries(seeded_client):
-    r = await seeded_client.get("/summaries/999")
+    r = await seeded_client.get("/summaries/123456789012345678")
     assert r.status_code == 200
     d = r.json()["data"]
-    assert d["user_id"] == 999
+    assert d["user_id"] == "123456789012345678"
 
 
 @pytest.mark.asyncio
 async def test_weekly_report(seeded_client):
-    r = await seeded_client.get("/weekly-report/999")
+    r = await seeded_client.get("/weekly-report/123456789012345678")
     assert r.status_code == 200
+    assert r.json()["data"]["current_streak"] == 0
+    assert r.json()["data"]["longest_streak"] == 0
 
 
 @pytest.mark.asyncio
@@ -153,20 +185,28 @@ async def test_summaries_404(client):
 # ── Reminders ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_get_reminders(seeded_client):
-    r = await seeded_client.get("/reminders/999")
+async def test_get_reminders(app, seeded_client):
+    _authenticate_as(app, "123456789012345678")
+    try:
+        r = await seeded_client.get("/reminders/123456789012345678")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
     assert r.status_code == 200
     d = r.json()["data"]
     assert d["deadline"] == "23:00"
 
 
 @pytest.mark.asyncio
-async def test_update_reminders(seeded_client):
-    r = await seeded_client.post("/reminders", json={
-        "user_id": 999,
-        "warn_time": "21:00",
-        "deadline": "22:30",
-    })
+async def test_update_reminders(app, seeded_client):
+    _authenticate_as(app, "123456789012345678")
+    try:
+        r = await seeded_client.post("/reminders", json={
+            "user_id": "123456789012345678",
+            "warn_time": "21:00",
+            "deadline": "22:30",
+        })
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
     assert r.status_code == 200
     d = r.json()["data"]
     assert d["warn_time"] == "21:00"
@@ -174,13 +214,21 @@ async def test_update_reminders(seeded_client):
 
 
 @pytest.mark.asyncio
-async def test_delete_reminders(seeded_client):
-    r = await seeded_client.delete("/reminders/999")
+async def test_delete_reminders(app, seeded_client):
+    _authenticate_as(app, "123456789012345678")
+    try:
+        r = await seeded_client.delete("/reminders/123456789012345678")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
     assert r.status_code == 200
     assert r.json()["data"]["reset"] is True
 
 
 @pytest.mark.asyncio
-async def test_reminders_404(client):
-    r = await client.get("/reminders/12345")
+async def test_reminders_404(app, client):
+    _authenticate_as(app, "12345")
+    try:
+        r = await client.get("/reminders/12345")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
     assert r.status_code == 404

@@ -9,6 +9,7 @@ POST /auth/logout           — clear session cookie
 """
 
 import logging
+import secrets
 from urllib.parse import urlencode
 
 import httpx
@@ -28,6 +29,25 @@ DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 
 # Scopes: identify gives us user id/username/avatar, no guilds needed
 SCOPES = "identify"
+OAUTH_STATE_COOKIE = "dsa_oauth_state"
+OAUTH_STATE_TTL_SECONDS = 600
+
+
+def _has_valid_oauth_state(request: Request, state: str | None) -> bool:
+    """Match the callback state to the short-lived browser transaction cookie."""
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE, "")
+    return bool(cookie_state and state and secrets.compare_digest(cookie_state, state))
+
+
+def _clear_oauth_state(response):
+    response.delete_cookie(
+        key=OAUTH_STATE_COOKIE,
+        path="/",
+        httponly=True,
+        secure=config.COOKIE_SECURE,
+        samesite="lax",
+    )
+    return response
 
 
 def _redirect_uri() -> str:
@@ -50,25 +70,43 @@ async def login(mobile: bool = False):
     endpoint which returns a deep link instead of setting a cookie.
     """
     redirect_uri = _mobile_redirect_uri() if mobile else _redirect_uri()
+    state = secrets.token_urlsafe(32)
     params = {
         "client_id": config.DISCORD_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": SCOPES,
+        "state": state,
     }
     url = f"{DISCORD_OAUTH_URL}?{urlencode(params)}"
-    return RedirectResponse(url)
+    response = RedirectResponse(url)
+    response.set_cookie(
+        key=OAUTH_STATE_COOKIE,
+        value=state,
+        httponly=True,
+        secure=config.COOKIE_SECURE,
+        samesite="lax",
+        max_age=OAUTH_STATE_TTL_SECONDS,
+        path="/",
+    )
+    return response
 
 
 # ── OAuth Callback ───────────────────────────────────────────────────────────
 
 @router.get("/callback", summary="Discord OAuth callback")
-async def callback(code: str, request: Request):
+async def callback(code: str, request: Request, state: str | None = None):
     """
     Exchange the authorization code for an access token,
     fetch the Discord user profile, create a JWT session cookie,
     and redirect to the frontend dashboard.
     """
+    if not _has_valid_oauth_state(request, state):
+        logger.warning("Rejected Discord OAuth callback with missing or mismatched state")
+        return _clear_oauth_state(
+            RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=state_mismatch")
+        )
+
     # 1. Exchange code for access token
     token_data = {
         "client_id": config.DISCORD_CLIENT_ID,
@@ -87,8 +125,8 @@ async def callback(code: str, request: Request):
 
         if token_resp.status_code != 200:
             logger.error("Discord token exchange failed: %s", token_resp.text)
-            return RedirectResponse(
-                url=f"{config.FRONTEND_URL}/?auth_error=token_exchange_failed"
+            return _clear_oauth_state(
+                RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=token_exchange_failed")
             )
 
         tokens = token_resp.json()
@@ -102,8 +140,8 @@ async def callback(code: str, request: Request):
 
         if user_resp.status_code != 200:
             logger.error("Discord user fetch failed: %s", user_resp.text)
-            return RedirectResponse(
-                url=f"{config.FRONTEND_URL}/?auth_error=user_fetch_failed"
+            return _clear_oauth_state(
+                RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=user_fetch_failed")
             )
 
         discord_user = user_resp.json()
@@ -156,7 +194,7 @@ async def callback(code: str, request: Request):
         max_age=60 * 60 * 24 * 30,
         path="/",
     )
-    return response
+    return _clear_oauth_state(response)
 
 
 # ── Mobile OAuth Callback ────────────────────────────────────────────────────
@@ -165,12 +203,18 @@ async def callback(code: str, request: Request):
 
 
 @router.get("/mobile-callback", summary="Discord OAuth callback for mobile apps")
-async def mobile_callback(code: str):
+async def mobile_callback(code: str, request: Request, state: str | None = None):
     """
     Exchange the authorization code for an access token,
     fetch the Discord user profile, create a JWT, and redirect to the
     mobile app via the dsabot:// custom URI scheme deep link.
     """
+    if not _has_valid_oauth_state(request, state):
+        logger.warning("Rejected mobile Discord OAuth callback with missing or mismatched state")
+        return _clear_oauth_state(
+            RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=state_mismatch")
+        )
+
     # 1. Exchange code for access token
     token_data = {
         "client_id": config.DISCORD_CLIENT_ID,
@@ -189,8 +233,8 @@ async def mobile_callback(code: str):
 
         if token_resp.status_code != 200:
             logger.error("Discord token exchange failed (mobile): %s", token_resp.text)
-            return RedirectResponse(
-                url=f"{config.FRONTEND_URL}/?auth_error=token_exchange_failed"
+            return _clear_oauth_state(
+                RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=token_exchange_failed")
             )
 
         tokens = token_resp.json()
@@ -204,8 +248,8 @@ async def mobile_callback(code: str):
 
         if user_resp.status_code != 200:
             logger.error("Discord user fetch failed (mobile): %s", user_resp.text)
-            return RedirectResponse(
-                url=f"{config.FRONTEND_URL}/?auth_error=user_fetch_failed"
+            return _clear_oauth_state(
+                RedirectResponse(url=f"{config.FRONTEND_URL}/?auth_error=user_fetch_failed")
             )
 
         discord_user = user_resp.json()
@@ -355,7 +399,7 @@ async def mobile_callback(code: str):
 </body>
 </html>
 """
-    return HTMLResponse(content=html_content)
+    return _clear_oauth_state(HTMLResponse(content=html_content))
 
 
 # ── Current User ─────────────────────────────────────────────────────────────

@@ -74,10 +74,17 @@ export default function DashboardPage() {
       <div className={s.chartsGrid}>
         <GlassCard padded glow>
           <div className={s.title}>📈 Activity Trend (30 Days)</div>
-          {activity.loading ? (
+          {activity.loading && !activity.data ? (
             <SkeletonCard />
-          ) : (
-            activity.data && (
+          ) : activity.error && !activity.data ? (
+            <ErrorState message={activity.error} onRetry={activity.refetch} />
+          ) : activity.data ? (
+            <>
+              {activity.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Showing cached data — refresh failed: {activity.error}
+                </div>
+              )}
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={activity.data.daily_activity}>
                   <defs>
@@ -94,16 +101,25 @@ export default function DashboardPage() {
                   <Area type="monotone" dataKey="users_posted" stroke="var(--diff-easy)" fill="none" strokeWidth={2} strokeDasharray="5 3" name="Active Users" />
                 </AreaChart>
               </ResponsiveContainer>
-            )
+            </>
+          ) : (
+            <EmptyState icon="📈" title="No activity data yet" message="Activity will appear after progress is logged." />
           )}
         </GlassCard>
 
         <GlassCard padded glow style={{ position: "relative" }}>
           <div className={s.title}>📚 Topic Distribution</div>
-          {topics.loading ? (
+          {topics.loading && !topics.data ? (
             <SkeletonCard />
+          ) : topics.error && !topics.data ? (
+            <ErrorState message={topics.error} onRetry={topics.refetch} />
           ) : topicPieData.length > 0 ? (
             <>
+              {topics.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Showing cached data — refresh failed: {topics.error}
+                </div>
+              )}
               <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
@@ -133,7 +149,14 @@ export default function DashboardPage() {
             )}
           </>
           ) : (
-            <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
+            <>
+              {topics.error && (
+                <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                  ⚠ Refresh failed: {topics.error}
+                </div>
+              )}
+              <EmptyState icon="📚" title="No topic data yet" message="Start logging DSA progress to see your topic breakdown." />
+            </>
           )}
         </GlassCard>
       </div>
@@ -147,10 +170,18 @@ export default function DashboardPage() {
               View Full Leaderboard →
             </Button>
           </div>
-          {lb.loading ? (
+          {lb.loading && !lb.data ? (
             <SkeletonCard />
+          ) : lb.error && !lb.data ? (
+            <ErrorState message={lb.error} onRetry={lb.refetch} />
           ) : (
-            lb.data && lb.data.entries.length > 0 && (
+            lb.data && lb.data.entries.length > 0 ? (
+              <>
+                {lb.error && (
+                  <div role="status" style={{ color: "var(--diff-hard)", fontSize: "0.85rem", marginBottom: 12 }}>
+                    ⚠ Showing cached data — refresh failed: {lb.error}
+                  </div>
+                )}
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={lb.data.entries} layout="vertical">
                   <CartesianGrid {...gridProps} />
@@ -166,6 +197,9 @@ export default function DashboardPage() {
                   <Bar dataKey="current_streak" fill="var(--accent)" radius={[0, 6, 6, 0]} name="Streak" />
                 </BarChart>
               </ResponsiveContainer>
+              </>
+            ) : (
+              <EmptyState icon="🏆" title="No streaks yet" message="Active streaks will appear here." />
             )
           )}
         </GlassCard>

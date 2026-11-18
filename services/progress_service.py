@@ -2,9 +2,9 @@ import logging
 import json
 import re
 from db import database
-from utils.time_utils import today_str, now_iso
+from utils.time_utils import today_str, now_iso, parse_date
 from utils.topic_extractor import extract_topics
-from utils.streak_utils import on_post
+from utils.streak_utils import on_post, recalculate_streak
 from utils.command_parser import parse_qdone
 from utils.resolvers import resolve_problem, fuzzy_match_problem
 from utils.resolvers.detector import detect_platform
@@ -222,7 +222,7 @@ async def process_progress_submission(
     content: str,
     source: str = "discord",
     channel_id: int = 0,
-    override_date: str = None,
+    override_date: str | None = None,
     web_topics: list = None,
     acting_user_id: int = None,
     confidence: int | None = None,
@@ -244,14 +244,32 @@ async def process_progress_submission(
         but they do NOT update the streak or daily_status (to avoid inflating
         the user's first-time-solve metrics).
     """
-    # Ensure user exists
+    # Validate explicit completion dates before any user/progress write.
     user = await database.get_user(user_id)
+    user_tz = user.get("timezone", "") if user else ""
+    actual_today = today_str(user_tz)
+    if override_date:
+        try:
+            requested_date = parse_date(override_date)
+        except (TypeError, ValueError):
+            return {
+                "status": "error",
+                "feedback_message": "❌ Invalid target date. Use YYYY-MM-DD.",
+            }
+        if requested_date > parse_date(actual_today):
+            return {
+                "status": "error",
+                "feedback_message": "❌ Cannot log completed progress for a future date.",
+            }
+        today = override_date
+    else:
+        today = actual_today
+
+    # Ensure user exists only after the explicit date has passed validation.
     if not user:
         await database.ensure_user(user_id)
         user = await database.get_user(user_id)
-
-    user_tz = user.get("timezone", "")
-    today = override_date if override_date else today_str(user_tz)
+        user_tz = user.get("timezone", "") if user else user_tz
     now = now_iso(user_tz)
 
     # Removed anti-duplicate check to allow independent logs of the same topic
@@ -665,7 +683,14 @@ async def process_progress_submission(
     # only original problem solves should advance the streak counter.
     if not is_review:
         await database.mark_posted(user_id, today)
-        streak = await on_post(user_id, today)
+        # When backdating (override_date provided and ≠ today's actual date),
+        # the incremental on_post logic can't correctly chain historical dates.
+        # Fall back to a full recalculation from all daily_status rows.
+        actual_today = today_str(user_tz)
+        if override_date and override_date != actual_today:
+            streak = await recalculate_streak(user_id)
+        else:
+            streak = await on_post(user_id, today)
     else:
         # For review sessions, return the current streak without modifying it
         streak = await database.get_streak(user_id)
@@ -741,6 +766,108 @@ async def process_progress_submission(
         "streak": streak,
         "leetcode_matches": leetcode_matches,
         "feedback_message": feedback_message,
+    }
+
+
+async def process_plan_submission(
+    user_id: int,
+    topics: list[dict],
+    target_date: str | None = None,
+    note: str | None = None,
+    source: str = "web",
+) -> dict:
+    """Persist a study plan without treating it as completed progress."""
+    user = await database.get_user(user_id)
+    user_tz = user.get("timezone", "") if user else ""
+    planned_date = target_date or today_str(user_tz)
+    try:
+        parse_date(planned_date)
+    except (TypeError, ValueError):
+        return {
+            "status": "error",
+            "feedback_message": "❌ Invalid target date. Use YYYY-MM-DD.",
+        }
+
+    if not topics:
+        return {
+            "status": "error",
+            "feedback_message": "❌ Add at least one topic to your plan.",
+        }
+
+    log_entries = []
+    topic_names = []
+    total_questions = 0
+    for item in topics:
+        canonical = item.get("canonical_topic")
+        count = item.get("question_count")
+        if not isinstance(canonical, str) or not canonical.strip():
+            return {
+                "status": "error",
+                "feedback_message": "❌ Each planned topic must have a name.",
+            }
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            return {
+                "status": "error",
+                "feedback_message": "❌ Planned question counts must be positive integers.",
+            }
+        canonical = canonical.strip()
+        total_questions += count
+        topic_names.append(canonical)
+        entry = {
+            "canonical_topic": canonical,
+            "normalized_topic": canonical,
+            "question_count": count,
+            "leetcode_topics": canonical,
+        }
+        if item.get("difficulty"):
+            entry["leetcode_difficulty"] = item["difficulty"]
+        log_entries.append(entry)
+
+    if total_questions > 25:
+        return {
+            "status": "error",
+            "feedback_message": "❌ A plan can include at most 25 questions.",
+        }
+
+    if not user:
+        await database.ensure_user(user_id)
+        user = await database.get_user(user_id)
+        user_tz = user.get("timezone", "") if user else user_tz
+
+    parsed_fields = {
+        "intent_type": "plan",
+        "target_date": planned_date,
+        "log": log_entries,
+        "source": source,
+        "platform": "leetcode",
+    }
+    if note:
+        parsed_fields["note"] = note
+    topics_str = ", ".join(topic_names)
+    message_content = f"!plan {planned_date} {topics_str}"
+    if note:
+        message_content += f"\n{note}"
+
+    await database.save_progress_log(
+        user_id=user_id,
+        channel_id=0,
+        message_content=message_content,
+        topics=topics_str,
+        posted_at=now_iso(user_tz),
+        log_date=planned_date,
+        message_type="plan",
+        parsed_fields=json.dumps(parsed_fields),
+        platform="leetcode",
+        is_review=False,
+    )
+    streak = await database.get_streak(user_id)
+    return {
+        "status": "success",
+        "msg_type": "plan",
+        "topics": topic_names,
+        "parsed_fields": parsed_fields,
+        "streak": streak,
+        "feedback_message": f"📝 Plan saved for {planned_date}: {topics_str}.",
     }
 
 

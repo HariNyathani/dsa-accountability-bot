@@ -408,10 +408,19 @@ Use [Supabase](https://supabase.com) free tier. Create a project, grab the `DATA
 ## Running Tests
 
 ```bash
-pytest tests/ -v
+./scripts/run_tests.sh -v
 ```
 
-Tests cover the REST API endpoints, topic extractor NLP logic, and timezone utilities.
+The runner resolves this repository's root and Python environment regardless of the
+shell's current directory. API tests require `TEST_DATABASE_URL` and
+`TEST_DATABASE_NAME` for a fresh, uniquely named disposable PostgreSQL database;
+the test fixture verifies the server-reported database and that its public schema
+is empty before initialization. Never point these variables at production. The
+runner does not create, reset, or drop databases. Pure tests can run without a DB:
+
+```bash
+./scripts/run_tests.sh tests/test_topic_extractor.py tests/test_time_utils.py
+```
 
 ---
 
@@ -436,7 +445,7 @@ Log entries store structured data as PostgreSQL JSONB, enabling efficient per-pr
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Run the test suite: `pytest tests/ -v`
+3. Run the test suite: `./scripts/run_tests.sh -v`
 4. Open a Pull Request
 
 For major changes, open an issue first to discuss the approach.

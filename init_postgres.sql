@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS progress_logs (
     parsed_fields JSONB,
     posted_at     TIMESTAMP NOT NULL,
     log_date      DATE NOT NULL,
-    message_type  TEXT DEFAULT 'progress'
+    message_type  TEXT DEFAULT 'progress',
+    is_review     BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_progress_logs_user_date ON progress_logs(user_id, log_date);
@@ -83,7 +84,11 @@ CREATE TABLE IF NOT EXISTS leetcode_problems (
 
 -- Add platform column to progress_logs (backward-compatible)
 ALTER TABLE progress_logs ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'leetcode';
+ALTER TABLE progress_logs ADD COLUMN IF NOT EXISTS is_review BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_progress_logs_platform ON progress_logs(platform);
+CREATE INDEX IF NOT EXISTS idx_progress_logs_user_date_new_solves
+    ON progress_logs (user_id, log_date)
+    WHERE is_review = FALSE;
 
 -- Codeforces problem dataset
 CREATE TABLE IF NOT EXISTS codeforces_problems (
@@ -94,6 +99,20 @@ CREATE TABLE IF NOT EXISTS codeforces_problems (
     tags          JSONB,
     PRIMARY KEY (contest_id, problem_index)
 );
+
+-- ── Spaced-repetition revision bank (also defined in migration 002) ──────────
+CREATE TABLE IF NOT EXISTS revision_bank (
+    user_id         BIGINT      NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    problem_id      BIGINT      NOT NULL REFERENCES leetcode_problems(question_id) ON DELETE CASCADE,
+    confidence_last INTEGER     NOT NULL DEFAULT 3 CHECK (confidence_last BETWEEN 1 AND 5),
+    next_review_at  TIMESTAMPTZ NOT NULL,
+    first_solved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_reviewed_at TIMESTAMPTZ,
+    review_count    INTEGER     NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, problem_id)
+);
+CREATE INDEX IF NOT EXISTS idx_revision_bank_user_due
+    ON revision_bank (user_id, next_review_at ASC);
 
 -- ── Vanity Usernames (V4.0) ─────────────────────────────────────────────────
 

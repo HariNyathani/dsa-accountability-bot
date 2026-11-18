@@ -8,6 +8,14 @@ services:
     envVars:
       - key: DISCORD_BOT_TOKEN
         sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_OAUTH_REDIRECT_URI
+        sync: false
+      - key: DISCORD_OAUTH_MOBILE_REDIRECT_URI
+        sync: false
       - key: BOT_OWNER_ID
         sync: false
       - key: ADMIN_CHANNEL_ID
@@ -18,10 +26,19 @@ services:
         sync: false
       - key: TIMEZONE
         value: Asia/Kolkata
+      - key: APP_ENV
+        value: production
+      - key: SESSION_SECRET
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: FRONTEND_URL
+        value: https://dsabot.in
       - key: GEMINI_API_KEY
         sync: false
-      - key: DATABASE_PATH
-        value: db/dsa_bot.db
+      # External PostgreSQL connection; configure the secret in Render.
+      - key: DATABASE_URL
+        sync: false
       - key: API_PORT
         value: "8000"
       - key: API_HOST
