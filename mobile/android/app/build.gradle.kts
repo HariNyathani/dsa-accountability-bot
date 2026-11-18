@@ -15,7 +15,9 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.harinyathani.dsabotapp"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned (was `flutter.compileSdkVersion`) so the compile target is reproducible and
+    // guaranteed to match targetSdk below. Google Play requires targetSdk 36 as of 2026-08-31.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -29,7 +31,8 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        // Google Play: "App must target Android 16 (API level 36) or higher", enforced 2026-08-31.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
